@@ -1,0 +1,1449 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Bag Region Compositor — GPT Image 2</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #1a1d24;
+    --border: #2a2f3a;
+    --accent: #3b82f6;
+    --accent-hover: #2563eb;
+    --text: #e5e7eb;
+    --muted: #9ca3af;
+    --danger: #ef4444;
+    --success: #22c55e;
+    --region-a: #ef4444;
+    --region-b: #3b82f6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: Inter, system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--panel);
+  }
+  header h1 { font-size: 1.15rem; font-weight: 600; }
+  header .badge {
+    font-size: 0.7rem;
+    background: #1e3a5f;
+    color: #93c5fd;
+    padding: 3px 8px;
+    border-radius: 999px;
+  }
+  .main {
+    display: grid;
+    grid-template-columns: 280px 1fr 300px;
+    gap: 0;
+    flex: 1;
+    min-height: 0;
+  }
+  .sidebar {
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    padding: 16px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .rightbar {
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    padding: 16px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .canvas-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: #0b0d11;
+    position: relative;
+  }
+  .canvas-container {
+    position: relative;
+    box-shadow: 0 0 0 1px var(--border), 0 20px 40px rgba(0,0,0,0.4);
+    border-radius: 8px;
+    overflow: hidden;
+    max-width: 100%;
+    max-height: calc(100vh - 140px);
+  }
+  canvas {
+    display: block;
+    max-width: 100%;
+    max-height: calc(100vh - 140px);
+    cursor: crosshair;
+  }
+  #maskCanvas { position: absolute; top: 0; left: 0; pointer-events: none; opacity: 0.45; }
+  label { font-size: 0.75rem; color: var(--muted); display: block; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: #252a33;
+    color: var(--text);
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.15s;
+    width: 100%;
+  }
+  .btn:hover { background: #2f3541; border-color: #3b4454; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+  .btn.primary:hover { background: var(--accent-hover); }
+  .btn.primary:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn.danger { background: transparent; border-color: var(--danger); color: var(--danger); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-group { display: flex; gap: 8px; }
+  .btn-group .btn { flex: 1; }
+  input[type="file"] { display: none; }
+  .file-btn { cursor: pointer; }
+  .slider-row { display: flex; align-items: center; gap: 10px; }
+  input[type="range"] { flex: 1; accent-color: var(--accent); }
+  .region-toggle {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 6px;
+  }
+  .region-btn {
+    padding: 10px 0;
+    border-radius: 6px;
+    border: 2px solid var(--border);
+    background: #1e222a;
+    color: var(--text);
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.8rem;
+  }
+  .region-btn.active-a { border-color: var(--region-a); background: rgba(239,68,68,0.15); color: #fca5a5; }
+  .region-btn.active-b { border-color: var(--region-b); background: rgba(59,130,246,0.15); color: #93c5fd; }
+  .region-btn.active-erase { border-color: #6b7280; background: rgba(107,114,128,0.2); }
+  .region-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .preview-box {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    background: #111;
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .preview-box img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  .preview-box.empty { color: var(--muted); font-size: 0.8rem; }
+  .status {
+    font-size: 0.8rem;
+    padding: 10px;
+    border-radius: 6px;
+    background: #1e222a;
+    border: 1px solid var(--border);
+    min-height: 40px;
+  }
+  .status.error { border-color: var(--danger); color: #fca5a5; }
+  .status.ok { border-color: var(--success); color: #86efac; }
+  .status.info { border-color: var(--accent); color: #93c5fd; }
+  .key-input {
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: #111;
+    color: var(--text);
+    font-size: 0.85rem;
+  }
+  .section-title { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+  textarea.prompt {
+    width: 100%;
+    height: 90px;
+    background: #111;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 8px;
+    font-size: 0.8rem;
+    resize: vertical;
+    font-family: inherit;
+  }
+  .result-img { max-width: 100%; border-radius: 8px; border: 1px solid var(--border); }
+  .version-list { display: flex; gap: 6px; flex-wrap: wrap; }
+  .version-thumb {
+    width: 80px;
+    height: 80px;
+    border-radius: 4px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    position: relative;
+    flex-shrink: 0;
+  }
+  .version-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .version-thumb .version-badge {
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    background: rgba(0,0,0,0.7);
+    color: #fff;
+    font-size: 0.65rem;
+    padding: 1px 4px;
+    border-radius: 3px;
+  }
+  .version-thumb.old::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    pointer-events: none;
+  }
+  .toast {
+    position: fixed;
+    top: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    z-index: 1000;
+    animation: slideDown 0.2s ease;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+  }
+  .toast.success { background: var(--success); color: #052e0b; }
+  .toast.error { background: var(--danger); color: #fff; }
+  .toast.info { background: var(--accent); color: #fff; }
+  @keyframes slideDown { from { opacity: 0; transform: translateX(-50%) translateY(-10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <div style="display:flex;align-items:center;gap:12px">
+    <h1>Bag Region Compositor</h1>
+    <span class="badge">GPT Image 2</span>
+  </div>
+  <div style="font-size:0.8rem;color:var(--muted)">序列化合成：A 區→Apple → B 區→Bear</div>
+</header>
+
+<div class="main">
+  <!-- LEFT TOOLBAR -->
+  <aside class="sidebar">
+    <div>
+      <div class="section-title">API Key</div>
+      <input type="password" id="apiKey" class="key-input" placeholder="sk-..." autocomplete="off" value="" />
+      <div style="font-size:0.7rem;color:var(--muted);margin-top:4px">預設已填入 xiangsuai.cn Key（可自行覆蓋）</div>
+    </div>
+
+    <div>
+      <div class="section-title">Proxy Mode</div>
+      <div class="btn-group" style="gap:6px;margin-bottom:8px">
+        <button class="btn primary" id="proxyLocal" data-proxy="local">Local (localhost:3001)</button>
+        <button class="btn" id="proxyWorker" data-proxy="worker">Cloudflare Worker</button>
+      </div>
+      <input type="text" id="workerUrl" class="key-input" placeholder="https://your-worker.your-subdomain.workers.dev" style="display:none" />
+      <div style="font-size:0.7rem;color:var(--muted);margin-top:4px">Local 需先執行 <code>node proxy.js</code>；Worker 需部署 worker.js 並填入 URL</div>
+    </div>
+
+    <div>
+      <div class="section-title">1. Base Image (Bag)</div>
+      <label class="btn file-btn" for="bagInput">Upload Bag Image</label>
+      <input type="file" id="bagInput" accept="image/*" />
+    </div>
+
+    <div>
+      <div class="section-title">2. Paint Region A (Red)</div>
+      <div class="region-toggle">
+        <button class="region-btn active-a" id="btnA" data-region="a" title="Paint Region A (Apple)">A (Apple)</button>
+        <button class="region-btn" id="btnB" data-region="b" disabled title="Unlock after Apple step">B (Bear)</button>
+        <button class="region-btn" id="btnErase" data-region="erase">Eraser</button>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-title">Brush Thickness</div>
+      <div class="slider-row">
+        <input type="range" id="brushSize" min="4" max="80" value="24" />
+        <span id="brushVal" style="min-width:28px;text-align:right;font-size:0.85rem">24</span>
+      </div>
+    </div>
+
+    <div class="btn-group">
+      <button class="btn" id="undoBtn" disabled>Undo</button>
+      <button class="btn" id="redoBtn" disabled>Redo</button>
+    </div>
+    <button class="btn danger" id="clearBtn">Clear All Regions</button>
+
+    <div>
+      <div class="section-title">3. Reference Images</div>
+      <label class="btn file-btn" for="appleInput" style="margin-bottom:8px">Upload Apple</label>
+      <input type="file" id="appleInput" accept="image/*" />
+      <label class="btn file-btn" for="bearInput" style="margin-bottom:8px" disabled>Upload Bear</label>
+      <input type="file" id="bearInput" accept="image/*" disabled />
+    </div>
+
+    <div>
+      <div class="section-title">Prompt — Apple Step</div>
+      <textarea class="prompt" id="promptApple" spellcheck="false">This image already has the apple pasted onto the bag in the masked area.
+Do NOT add, move, replace, or redraw the apple. The apple's position and shape are FINAL.
+Your ONLY job: blend the seam around the masked region so the apple looks naturally printed/embroidered on the bag fabric. Smooth the edge, match lighting, perspective, fabric wrinkles and material of the bag exactly.
+Keep the apple interior and everything outside the mask completely unchanged.
+High fidelity, photorealistic product photo.</textarea>
+    </div>
+
+    <div>
+      <div class="section-title">Prompt — Bear Step</div>
+      <textarea class="prompt" id="promptBear" spellcheck="false">This image already has the bear pasted onto the bag in the masked area.
+Do NOT add, move, replace, or redraw the bear. The bear's position and shape are FINAL.
+Your ONLY job: blend the seam around the masked region so the bear looks naturally printed/embroidered on the bag fabric. Smooth the edge, match lighting, perspective, fabric wrinkles and material of the bag exactly.
+Preserve the apple already placed elsewhere on the bag exactly as it is. Do not modify it.
+Keep the bear interior and everything outside the mask completely unchanged.
+High fidelity, photorealistic product photo.</textarea>
+    </div>
+
+    <button class="btn primary" id="generateAppleBtn" disabled>Generate Apple A</button>
+    <button class="btn primary hidden" id="generateBearBtn" disabled>Generate Bear B</button>
+    <button class="btn primary hidden" id="downloadBtn" disabled>Download Final</button>
+    <button class="btn" id="debugBtn" style="margin-top:8px">Debug: Test Proxy</button>
+
+    <div id="status" class="status info">Ready — upload bag, paint region A, upload apple</div>
+  </aside>
+
+  <!-- CENTER CANVAS -->
+  <div class="canvas-wrap">
+    <div class="canvas-container" id="canvasContainer" class="hidden">
+      <canvas id="mainCanvas"></canvas>
+      <canvas id="maskCanvas"></canvas>
+    </div>
+    <div id="placeholder" style="color:var(--muted);text-align:center">
+      <p style="font-size:1.1rem;margin-bottom:8px">Upload a bag image to start</p>
+      <p style="font-size:0.85rem">Then paint region A (red) for apple</p>
+    </div>
+  </div>
+
+  <!-- RIGHT PREVIEW -->
+  <aside class="rightbar">
+    <div>
+      <div class="section-title">Apple Reference</div>
+      <div class="preview-box empty" id="applePreview">No apple</div>
+    </div>
+    <div>
+      <div class="section-title">Bear Reference</div>
+      <div class="preview-box empty" id="bearPreview">No bear</div>
+    </div>
+    <div>
+      <div class="section-title">Apple Versions (latest left)</div>
+      <div class="version-list" id="appleVersions"></div>
+    </div>
+    <div>
+      <div class="section-title">Bear Versions (latest left)</div>
+      <div class="version-list" id="bearVersions"></div>
+    </div>
+    <div>
+      <div class="section-title">Final Result</div>
+      <div class="preview-box empty" id="resultPreview">Waiting for Bear step…</div>
+    </div>
+  </aside>
+</div>
+
+<script type="module">
+// ========== STATE ==========
+const state = {
+  // Images
+  bagImg: null,           // HTMLImageElement
+  appleImg: null,
+  bearImg: null,
+  // Canvas
+  mainCanvas: null,
+  maskCanvas: null,
+  mainCtx: null,
+  maskCtx: null,
+  // Drawing
+  region: 'a',            // 'a' | 'b' | 'erase'
+  brushSize: 24,
+  isDrawing: false,
+  lastX: 0,
+  lastY: 0,
+  // History (undo/redo)
+  history: [],
+  historyIndex: -1,
+  maxHistory: 40,
+  // Versions (max 3 each)
+  versions: { apple: [], bear: [] },
+  maxVersions: 3,
+  // Results
+  appleResultUrl: null,   // data URL from Apple step
+  bearResultUrl: null,    // data URL from Bear step (final)
+  // Wizard phase
+  phase: 0, // 0=init, 1=apple ready, 2=apple done, 3=bear ready, 4=done
+};
+
+// ========== DOM REFERENCES ==========
+const els = {
+  apiKey: document.getElementById('apiKey'),
+  bagInput: document.getElementById('bagInput'),
+  appleInput: document.getElementById('appleInput'),
+  bearInput: document.getElementById('bearInput'),
+  btnA: document.getElementById('btnA'),
+  btnB: document.getElementById('btnB'),
+  btnErase: document.getElementById('btnErase'),
+  brushSize: document.getElementById('brushSize'),
+  brushVal: document.getElementById('brushVal'),
+  undoBtn: document.getElementById('undoBtn'),
+  redoBtn: document.getElementById('redoBtn'),
+  clearBtn: document.getElementById('clearBtn'),
+  promptApple: document.getElementById('promptApple'),
+  promptBear: document.getElementById('promptBear'),
+  generateAppleBtn: document.getElementById('generateAppleBtn'),
+  generateBearBtn: document.getElementById('generateBearBtn'),
+  downloadBtn: document.getElementById('downloadBtn'),
+  status: document.getElementById('status'),
+  applePreview: document.getElementById('applePreview'),
+  bearPreview: document.getElementById('bearPreview'),
+  appleVersions: document.getElementById('appleVersions'),
+  bearVersions: document.getElementById('bearVersions'),
+  resultPreview: document.getElementById('resultPreview'),
+  canvasContainer: document.getElementById('canvasContainer'),
+  placeholder: document.getElementById('placeholder'),
+  mainCanvas: document.getElementById('mainCanvas'),
+  maskCanvas: document.getElementById('maskCanvas'),
+};
+
+// ========== UTILITIES ==========
+function showToast(message, type = 'info') {
+  const existing = document.querySelector('.toast');
+  if (existing) existing.remove();
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.textContent = message;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 3000);
+}
+
+function setStatus(msg, type = 'info') {
+  const el = els.status;
+  el.className = `status ${type}`;
+  el.textContent = msg;
+}
+
+function updateButtons() {
+  // Undo/Redo
+  els.undoBtn.disabled = state.historyIndex <= 0;
+  els.redoBtn.disabled = state.historyIndex >= state.history.length - 1;
+  // Generate Apple
+  const hasBag = !!state.bagImg;
+  const hasApple = !!state.appleImg;
+  const hasAMask = maskHasRegion('a');
+  els.generateAppleBtn.disabled = !(hasBag && hasApple && hasAMask);
+  // Generate Bear
+  const hasBear = !!state.bearImg;
+  const hasBMask = maskHasRegion('b');
+  const appleDone = state.phase >= 2;
+  els.generateBearBtn.disabled = !(appleDone && hasBear && hasBMask);
+  // Download
+  els.downloadBtn.disabled = !(state.phase >= 4);
+}
+
+function maskHasRegion(region) {
+  if (!state.maskCtx) return false;
+  const { width, height } = state.maskCanvas;
+  const data = state.maskCtx.getImageData(0, 0, width, height).data;
+  const targetR = region === 'a' ? 239 : 59; // approx red/blue
+  const targetG = region === 'a' ? 68 : 130;
+  const targetB = region === 'a' ? 68 : 246;
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i], g = data[i+1], b = data[i+2], a = data[i+3];
+    if (a > 20) {
+      // Check if color matches region (rough match)
+      const dr = Math.abs(r - targetR), dg = Math.abs(g - targetG), db = Math.abs(b - targetB);
+      if (dr < 80 && dg < 80 && db < 80) return true;
+    }
+  }
+  return false;
+}
+
+// ========== HISTORY (Undo / Redo) ==========
+function pushHistory() {
+  if (state.historyIndex < state.history.length - 1) {
+    state.history = state.history.slice(0, state.historyIndex + 1);
+  }
+  const snapshot = state.maskCtx.getImageData(0, 0, state.maskCanvas.width, state.maskCanvas.height);
+  state.history.push(snapshot);
+  if (state.history.length > state.maxHistory) {
+    state.history.shift();
+  } else {
+    state.historyIndex++;
+  }
+  updateButtons();
+}
+
+function undo() {
+  if (state.historyIndex <= 0) return;
+  state.historyIndex--;
+  state.maskCtx.putImageData(state.history[state.historyIndex], 0, 0);
+  updateButtons();
+}
+
+function redo() {
+  if (state.historyIndex >= state.history.length - 1) return;
+  state.historyIndex++;
+  state.maskCtx.putImageData(state.history[state.historyIndex], 0, 0);
+  updateButtons();
+}
+
+// ========== IMAGE LOADING ==========
+// Load an uploaded file into an <img> as a SAME-ORIGIN data URL.
+// Critical: if we ever draw to canvas and .toBlob() it, a cross-origin-loaded
+// image taints the canvas and throws "Tainted canvases may not be exported".
+// data URLs are never cross-origin, so anything loaded this way is safe to export.
+let _blobStore = {}; // {src: blob} so we can recover the original blob for FormData
+function loadImageToElement(file, callback) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = new Image();
+    img.onload = () => {
+      _blobStore[img.src] = file; // map data-URL src -> original File blob
+      callback(img);
+    };
+    img.src = e.target.result; // data URL — always same-origin, never taints
+  };
+  reader.readAsDataURL(file);
+}
+
+// Recover the blob for an image that was loaded via loadImageToElement.
+// Falls back to fetch(src) (works for data URLs and same-origin URLs).
+async function imgSrcToBlob(src) {
+  if (_blobStore[src]) return _blobStore[src];
+  const r = await fetch(src);
+  return await r.blob();
+}
+
+// Compute the bounding box of the painted strokes for a given region (a/b).
+// Returns {x,y,w,h} in mask-canvas pixel coords, or null if nothing painted.
+function regionBBox(region) {
+  if (!state.maskCtx) return null;
+  const w = state.maskCanvas.width, h = state.maskCanvas.height;
+  const data = state.maskCtx.getImageData(0, 0, w, h).data;
+  const targetR = region === 'a' ? 239 : 59;
+  const targetG = region === 'a' ? 68 : 130;
+  const targetB = region === 'a' ? 68 : 246;
+  const TOL = 80;
+  let minX = 1e9, minY = 1e9, maxX = -1, maxY = -1, hit = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      const a = data[i + 3];
+      if (a > 20) {
+        const dr = Math.abs(data[i] - targetR);
+        const dg = Math.abs(data[i + 1] - targetG);
+        const db = Math.abs(data[i + 2] - targetB);
+        if (dr < TOL && dg < TOL && db < TOL) {
+          if (x < minX) minX = x; if (y < minY) minY = y;
+          if (x > maxX) maxX = x; if (y > maxY) maxY = y;
+          hit++;
+        }
+      }
+    }
+  }
+  if (!hit) return null;
+  // Slightly pad the bbox so the model has seam room to blend.
+  const pad = Math.round(Math.max(w, h) * 0.04);
+  return {
+    x: Math.max(0, minX - pad),
+    y: Math.max(0, minY - pad),
+    w: Math.min(w - 1, maxX + pad) - Math.max(0, minX - pad) + 1,
+    h: Math.min(h - 1, maxY + pad) - Math.max(0, minY - pad) + 1,
+    hitCount: hit,
+  };
+}
+
+// Build a highly suggestive overlay (the ref image) already composited into the
+// painted bbox on top of the base, PLUS a mask that marks ONLY the seam region
+// (a band around the ref's footprint) as editable. The model's job becomes:
+// "blend the seam — do NOT relocate the object". Returns {baseBlob, maskBlob}.
+async function buildPastedBaseAndSeamMask(region, refImg) {
+  const refBlob = await imgSrcToBlob(refImg.src);
+  const refBmp = await createImageBitmap(refBlob);
+
+  const bbox = regionBBox(region);
+  if (!bbox) throw new Error('region ' + region + ' 沒有畫筆觸 (bbox empty)');
+
+  // Fit refImg into the bbox preserving aspect ratio (contain).
+  const sScale = Math.min(bbox.w / refBmp.width, bbox.h / refBmp.height);
+  // shrink slightly so the object sits comfortably inside the brushed area
+  const fitScale = sScale * 0.92;
+  const drawW = Math.max(1, refBmp.width * fitScale);
+  const drawH = Math.max(1, refBmp.height * fitScale);
+  const drawX = bbox.x + (bbox.w - drawW) / 2;
+  const drawY = bbox.y + (bbox.h - drawH) / 2;
+
+  // === BASE canvas = current main canvas (bag, or bag+apple) with ref pasted ===
+  const w = state.maskCanvas.width, h = state.maskCanvas.height;
+  const baseC = document.createElement('canvas');
+  baseC.width = w; baseC.height = h;
+  const bctx = baseC.getContext('2d');
+  // draw whatever is currently on the main canvas (the live composite)
+  bctx.drawImage(state.mainCanvas, 0, 0);
+  // paste the ref on top, centered in the bbox
+  bctx.drawImage(refBmp, drawX, drawY, drawW, drawH);
+  const baseBlob = await canvasToBlob(baseC);
+
+  // === SEAM MASK = opaque everywhere EXCEPT a band around the ref footprint ===
+  // Only the band is editable; the model blends the edge. The ref's interior is
+  // NOT editable (so the model can't move/repaint it, only feather the seam).
+  const seamC = document.createElement('canvas');
+  seamC.width = w; seamC.height = h;
+  const sctx = seamC.getContext('2d');
+  sctx.fillStyle = '#ffffff';
+  sctx.fillRect(0, 0, w, h);
+  // carve out a band: the bbox region MINUS the inner core of the ref footprint.
+  // We do this by punching the full bbox transparent, then re-covering the
+  // ref's inner area opaque. Net editable = bbox edge band (incl. ref border).
+  sctx.globalCompositeOperation = 'destination-out';
+  sctx.fillStyle = 'rgba(0,0,0,1)';
+  sctx.fillRect(bbox.x, bbox.y, bbox.w, bbox.h);
+  // shrink ref footprint by a band fraction; the leftover ring is the seam
+  const band = Math.max(4, Math.round(Math.min(drawW, drawH) * 0.18));
+  const innerX = drawX + band, innerY = drawY + band;
+  const innerW = Math.max(0, drawW - 2 * band), innerH = Math.max(0, drawH - 2 * band);
+  if (innerW > 0 && innerH > 0) {
+    sctx.globalCompositeOperation = 'source-over';
+    sctx.fillStyle = '#ffffff';
+    sctx.fillRect(innerX, innerY, innerW, innerH);
+  }
+  const maskBlob = await canvasToBlob(seamC);
+
+  refBmp.close?.();
+  console.log(`[buildPastedBaseAndSeamMask] region=${region} bbox=`, bbox,
+    'ref drawn at', drawX | 0, drawY | 0, drawW | 0, 'x', drawH | 0,
+    'seam band=' + band);
+  return { baseBlob, maskBlob, bbox, pasteRect: { x: drawX, y: drawY, w: drawW, h: drawH } };
+}
+
+els.bagInput.addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  loadImageToElement(file, img => {
+    state.bagImg = img;
+    setupCanvases(img);
+    resetStateForNewBag();
+    updateButtons();
+  });
+});
+
+els.appleInput.addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  loadImageToElement(file, img => {
+    state.appleImg = img;
+    renderPreview(els.applePreview, img);
+    updateButtons();
+  });
+});
+
+els.bearInput.addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  loadImageToElement(file, img => {
+    state.bearImg = img;
+    renderPreview(els.bearPreview, img);
+    updateButtons();
+  });
+});
+
+function setupCanvases(img) {
+  const maxDim = 900;
+  let w = img.width, h = img.height;
+  if (w > maxDim || h > maxDim) {
+    const scale = maxDim / Math.max(w, h);
+    w = Math.round(w * scale);
+    h = Math.round(h * scale);
+  }
+  els.mainCanvas.width = els.maskCanvas.width = w;
+  els.mainCanvas.height = els.maskCanvas.height = h;
+  state.mainCtx = els.mainCanvas.getContext('2d');
+  state.maskCtx = els.maskCanvas.getContext('2d');
+  state.mainCanvas = els.mainCanvas;
+  state.maskCanvas = els.maskCanvas;
+  state.mainCtx.drawImage(img, 0, 0, w, h);
+  state.maskCtx.clearRect(0, 0, w, h);
+  // Init history
+  state.history = [];
+  state.historyIndex = -1;
+  pushHistory();
+  els.canvasContainer.classList.remove('hidden');
+  els.placeholder.classList.add('hidden');
+}
+
+function resetStateForNewBag() {
+  state.region = 'a';
+  state.phase = 0;
+  state.versions = { apple: [], bear: [] };
+  state.appleResultUrl = null;
+  state.bearResultUrl = null;
+  // UI reset
+  els.btnA.classList.add('active-a');
+  els.btnA.classList.remove('active-b', 'active-erase');
+  els.btnB.classList.remove('active-a', 'active-b', 'active-erase');
+  els.btnB.disabled = true;
+  els.btnErase.classList.remove('active-a', 'active-b', 'active-erase');
+  els.btnErase.classList.add('active-erase');
+  els.appleInput.disabled = false;
+  els.bearInput.disabled = true;
+  els.generateAppleBtn.classList.remove('hidden');
+  els.generateBearBtn.classList.add('hidden');
+  els.downloadBtn.classList.add('hidden');
+  els.appleVersions.innerHTML = '';
+  els.bearVersions.innerHTML = '';
+  els.resultPreview.classList.add('empty');
+  els.resultPreview.innerHTML = 'Waiting for Bear step…';
+  els.applePreview.classList.add('empty');
+  els.applePreview.innerHTML = 'No apple';
+  els.bearPreview.classList.add('empty');
+  els.bearPreview.innerHTML = 'No bear';
+  setStatus('Ready — upload bag, paint region A, upload apple', 'info');
+}
+
+function renderPreview(container, img) {
+  container.classList.remove('empty');
+  container.innerHTML = '';
+  const im = document.createElement('img');
+  im.src = img.src;
+  container.appendChild(im);
+}
+
+// ========== REGION TOGGLE ==========
+[els.btnA, els.btnB, els.btnErase].forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (btn.disabled) return;
+    [els.btnA, els.btnB, els.btnErase].forEach(b => b.classList.remove('active-a', 'active-b', 'active-erase'));
+    state.region = btn.dataset.region;
+    if (state.region === 'a') btn.classList.add('active-a');
+    else if (state.region === 'b') btn.classList.add('active-b');
+    else btn.classList.add('active-erase');
+  });
+});
+
+// ========== BRUSH SIZE ==========
+els.brushSize.addEventListener('input', e => {
+  state.brushSize = +e.target.value;
+  els.brushVal.textContent = state.brushSize;
+});
+
+// ========== DRAWING ==========
+function getCanvasPos(e) {
+  const rect = els.mainCanvas.getBoundingClientRect();
+  const scaleX = els.mainCanvas.width / rect.width;
+  const scaleY = els.mainCanvas.height / rect.height;
+  return {
+    x: (e.clientX - rect.left) * scaleX,
+    y: (e.clientY - rect.top) * scaleY
+  };
+}
+
+function drawStroke(x, y) {
+  state.maskCtx.lineCap = 'round';
+  state.maskCtx.lineJoin = 'round';
+  state.maskCtx.lineWidth = state.brushSize;
+
+  if (state.region === 'erase') {
+    state.maskCtx.globalCompositeOperation = 'destination-out';
+    state.maskCtx.strokeStyle = 'rgba(0,0,0,1)';
+  } else {
+    state.maskCtx.globalCompositeOperation = 'source-over';
+    // Fully opaque region color so the mask-conversion can match it reliably.
+    state.maskCtx.strokeStyle = state.region === 'a'
+      ? 'rgb(239,68,68)'
+      : 'rgb(59,130,246)';
+  }
+
+  state.maskCtx.beginPath();
+  state.maskCtx.moveTo(state.lastX, state.lastY);
+  state.maskCtx.lineTo(x, y);
+  state.maskCtx.stroke();
+}
+
+function drawDot(x, y) {
+  state.maskCtx.beginPath();
+  state.maskCtx.arc(x, y, state.brushSize / 2, 0, Math.PI * 2);
+  if (state.region === 'erase') {
+    state.maskCtx.globalCompositeOperation = 'destination-out';
+    state.maskCtx.fillStyle = 'rgba(0,0,0,1)';
+  } else {
+    state.maskCtx.globalCompositeOperation = 'source-over';
+    state.maskCtx.fillStyle = state.region === 'a'
+      ? 'rgb(239,68,68)'
+      : 'rgb(59,130,246)';
+  }
+  state.maskCtx.fill();
+}
+
+els.mainCanvas.addEventListener('mousedown', e => {
+  if (!state.bagImg) return;
+  state.isDrawing = true;
+  const pos = getCanvasPos(e);
+  state.lastX = pos.x;
+  state.lastY = pos.y;
+  drawDot(pos.x, pos.y);
+});
+
+els.mainCanvas.addEventListener('mousemove', e => {
+  if (!state.isDrawing || !state.bagImg) return;
+  const pos = getCanvasPos(e);
+  drawStroke(pos.x, pos.y);
+  state.lastX = pos.x;
+  state.lastY = pos.y;
+});
+
+function endDrawing() {
+  if (state.isDrawing) {
+    state.isDrawing = false;
+    pushHistory();
+    updateButtons();
+  }
+}
+
+els.mainCanvas.addEventListener('mouseup', endDrawing);
+els.mainCanvas.addEventListener('mouseleave', endDrawing);
+
+// Touch support
+els.mainCanvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const touch = e.touches[0];
+  const mouseEvent = new MouseEvent('mousedown', { clientX: touch.clientX, clientY: touch.clientY });
+  els.mainCanvas.dispatchEvent(mouseEvent);
+}, { passive: false });
+
+els.mainCanvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  const touch = e.touches[0];
+  const mouseEvent = new MouseEvent('mousemove', { clientX: touch.clientX, clientY: touch.clientY });
+  els.mainCanvas.dispatchEvent(mouseEvent);
+}, { passive: false });
+
+els.mainCanvas.addEventListener('touchend', () => {
+  els.mainCanvas.dispatchEvent(new MouseEvent('mouseup'));
+});
+
+// ========== UNDO / REDO / CLEAR ==========
+els.undoBtn.addEventListener('click', undo);
+els.redoBtn.addEventListener('click', redo);
+els.clearBtn.addEventListener('click', () => {
+  if (!state.bagImg) return;
+  state.maskCtx.clearRect(0, 0, state.maskCanvas.width, state.maskCanvas.height);
+  pushHistory();
+  updateButtons();
+});
+
+// ========== MASK CONVERSION ==========
+// OpenAI /v1/images/edits mask convention:
+//   - opaque (alpha=255) = keep unchanged
+//   - transparent (alpha=0) = editable, model fills it
+// We only want the CURRENT region (a or b) to be editable; everything else
+// (including the other region's paint) must stay opaque.
+function createEditMask(region) {
+  const w = state.maskCanvas.width, h = state.maskCanvas.height;
+  const mask = document.createElement('canvas');
+  mask.width = w; mask.height = h;
+  const ctx = mask.getContext('2d');
+  // Start fully opaque white (non-editable)
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, w, h);
+
+  // Target color for the requested region
+  const targetR = region === 'a' ? 239 : 59;
+  const targetG = region === 'a' ? 68 : 130;
+  const targetB = region === 'a' ? 68 : 246;
+  const TOL = 60; // color tolerance
+
+  // Punch holes ONLY where user painted THIS region's color
+  const srcData = state.maskCtx.getImageData(0, 0, w, h);
+  const dstData = ctx.getImageData(0, 0, w, h);
+  let punched = 0;
+  for (let i = 0; i < srcData.data.length; i += 4) {
+    const a = srcData.data[i + 3];
+    if (a > 20) {
+      const r = srcData.data[i], g = srcData.data[i+1], b = srcData.data[i+2];
+      const dr = Math.abs(r - targetR), dg = Math.abs(g - targetG), db = Math.abs(b - targetB);
+      if (dr < TOL && dg < TOL && db < TOL) {
+        dstData.data[i + 3] = 0; // transparent = editable
+        dstData.data[i] = 0; dstData.data[i+1] = 0; dstData.data[i+2] = 0;
+        punched++;
+      }
+    }
+  }
+  ctx.putImageData(dstData, 0, 0);
+  console.log(`[createEditMask] region=${region}, editable pixels=${punched}`);
+  return mask;
+}
+
+function canvasToBlob(canvas, type = 'image/png') {
+  return new Promise(resolve => canvas.toBlob(resolve, type));
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result);
+    fr.onerror = reject;
+    fr.readAsDataURL(blob);
+  });
+}
+
+// ========== VERSION MANAGEMENT ==========
+function addVersion(step, dataUrl) {
+  const arr = state.versions[step];
+  arr.unshift(dataUrl);
+  if (arr.length > state.maxVersions) arr.pop();
+  renderVersions(step);
+}
+
+function renderVersions(step) {
+  const container = step === 'apple' ? els.appleVersions : els.bearVersions;
+  const arr = state.versions[step];
+  container.innerHTML = '';
+  arr.forEach((url, idx) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'version-thumb' + (idx > 0 ? ' old' : '');
+    wrap.title = `Version ${idx + 1} (${step})`;
+    const im = document.createElement('img');
+    im.src = url;
+    const badge = document.createElement('span');
+    badge.className = 'version-badge';
+    badge.textContent = `v${idx + 1}`;
+    wrap.appendChild(im);
+    wrap.appendChild(badge);
+    container.appendChild(wrap);
+  });
+}
+
+// ========== PROXY CONFIG ==========
+let proxyMode = 'local'; // 'local' | 'worker'
+const LOCAL_PROXY = 'http://localhost:3001/api/v1/images/edits';
+let WORKER_PROXY = '';   // user fills in
+
+function getApiEndpoint() {
+  if (proxyMode === 'local') return LOCAL_PROXY;
+  return WORKER_PROXY || LOCAL_PROXY; // fallback
+}
+
+// Proxy button handlers
+document.getElementById('proxyLocal').addEventListener('click', () => {
+  proxyMode = 'local';
+  document.getElementById('proxyLocal').classList.add('primary');
+  document.getElementById('proxyWorker').classList.remove('primary');
+  document.getElementById('workerUrl').style.display = 'none';
+  setStatus('Proxy: Local (localhost:3001) — 請確認已執行 node proxy.js', 'info');
+});
+
+document.getElementById('proxyWorker').addEventListener('click', () => {
+  proxyMode = 'worker';
+  document.getElementById('proxyWorker').classList.add('primary');
+  document.getElementById('proxyLocal').classList.remove('primary');
+  document.getElementById('workerUrl').style.display = 'block';
+  setStatus('Proxy: Cloudflare Worker — 請填入 Worker URL', 'info');
+});
+
+document.getElementById('workerUrl').addEventListener('input', e => {
+  WORKER_PROXY = e.target.value.trim().replace(/\/+$/, '') + '/api/v1/images/edits';
+});
+
+// ========== API CALLS ==========
+async function callEditsApi(baseBlob, refBlob, maskBlob, prompt, { quality = 'high', size = 'auto' } = {}) {
+  const key = els.apiKey.value.trim();
+  if (!key) throw new Error('NO_API_KEY');
+
+  // (baseBlob is reassigned below when dims mismatch the mask — declare as let)
+  let base = baseBlob;
+
+  // === MASK VALIDATION: detect all-opaque (API would no-op) ===
+  // Get mask dimensions from the blob by decoding it
+  const maskBmp = await createImageBitmap(maskBlob);
+  const maskCanvasTmp = document.createElement('canvas');
+  maskCanvasTmp.width = maskBmp.width; maskCanvasTmp.height = maskBmp.height;
+  const maskTmpCtx = maskCanvasTmp.getContext('2d');
+  maskTmpCtx.drawImage(maskBmp, 0, 0);
+  const mData = maskTmpCtx.getImageData(0, 0, maskBmp.width, maskBmp.height).data;
+  let transparentPx = 0;
+  for (let i = 3; i < mData.length; i += 4) {
+    if (mData[i] < 32) transparentPx++;
+  }
+  const maskW = maskBmp.width, maskH = maskBmp.height;
+  console.log('[callEditsApi] MASK DIMS:', maskW, 'x', maskH);
+  console.log('[callEditsApi] MASK transparent pixels:', transparentPx, '/', mData.length/4, `(${(transparentPx/(mData.length/4)*100).toFixed(2)}%)`);
+  if (transparentPx === 0) {
+    console.error('[callEditsApi] !!! MASK IS FULLY OPAQUE — API WILL IGNORE IT (no region to edit) !!!');
+    alert('⚠️ Mask 全不透明!\nDebug: mask 沒有透明區,API 會把整張圖當「不需編輯」。\n檢查:\n1) 你有在當前 region (A=紅 / B=藍) 畫筆觸嗎?\n2) 筆觸顏色是否正確 (切到 A 還是 B 再畫)?\n3) 解鎖後 B 區要在「B(藍)」按鈕亮起才能畫。');
+  }
+  maskBmp.close?.();
+
+  // Parse base image dimensions for comparison
+  const baseBmp = await createImageBitmap(base);
+  const baseW = baseBmp.width, baseH = baseBmp.height;
+  console.log('[callEditsApi] BASE IMG DIMS:', baseW, 'x', baseH);
+  if (baseW !== maskW || baseH !== maskH) {
+    console.warn('[callEditsApi] ⚠️ BASE and MASK dims differ — API may reject or ignore mask');
+  }
+  baseBmp.close?.();
+
+  // Hard-assert the API precondition the docs care about: image and mask MUST
+  // share identical pixel dimensions, or the mask is ignored / request rejected.
+  if (maskBlob && (maskW !== baseW || baseH !== maskH)) {
+    console.error(`[callEditsApi] !!! DIM MISMATCH: mask ${maskW}x${maskH} vs base ${baseW}x${baseH} — forcibly resizing base to match mask`);
+    // Resize base to match mask dims so the request is dimensionally valid.
+    const baseImg = await createImageBitmap(base);
+    const rebased = document.createElement('canvas');
+    rebased.width = maskW; rebased.height = maskH;
+    rebased.getContext('2d').drawImage(baseImg, 0, 0, maskW, maskH);
+    baseImg.close?.();
+    base = await canvasToBlob(rebased);
+    console.log('[callEditsApi] base resized to', maskW + 'x' + maskH);
+  }
+
+  const form = new FormData();
+  form.append('model', 'gpt-image-2');
+  form.append('prompt', prompt);
+  form.append('n', '1');
+  form.append('response_format', 'b64_json');
+  form.append('output_format', 'png');
+  if (quality && ['low', 'medium', 'high'].includes(quality)) {
+    form.append('quality', quality);
+  }
+  // Pin the output size to the input image size. Without this, the upstream
+  // gpt-image-2 route renders at a FIXED ~716x716 and resizes our base+mask
+  // internally — which mismaps the mask and drops the edit in the wrong place.
+  // We resize base + mask + ref to the SAME pinned square so the mask aligns
+  // 1:1, then append image(base) and image(ref) LAST so both survive form.set().
+  if (maskW && maskH) {
+    // Square pinned size; gpt-image-1/2 routes reliably honor 1024x1024
+    // without internal resize, which keeps the mask pixel-aligned.
+    const sw = 1024, sh = 1024;
+
+    // Resize the BASE (bag / bag+apple) to sw×sh.
+    const pinBaseImg = await createImageBitmap(base);
+    const pinBase = document.createElement('canvas');
+    pinBase.width = sw; pinBase.height = sh;
+    pinBase.getContext('2d').drawImage(pinBaseImg, 0, 0, sw, sh);
+    pinBaseImg.close?.();
+    base = await canvasToBlob(pinBase);
+
+    // Resize the REF to sw×sh too. In the Option-B flow refBlob === baseBlob
+    // (the apple is already composited onto the base), so the model sees the
+    // exact same image for both — the ref is just "the picture to match".
+    let refPinned = refBlob;
+    if (refBlob && refBlob !== baseBlob) {
+      const pinRefImg = await createImageBitmap(refBlob);
+      const pinRef = document.createElement('canvas');
+      pinRef.width = sw; pinRef.height = sh;
+      pinRef.getContext('2d').drawImage(pinRefImg, 0, 0, sw, sh);
+      pinRefImg.close?.();
+      refPinned = await canvasToBlob(pinRef);
+    } else {
+      refPinned = base; // same object — already pinned
+    }
+
+    // Resize the MASK to sw×sh with nearest-neighbor so transparent holes
+    // stay aligned to the base pixels (no smoothing blur on the alpha edge).
+    if (maskBlob) {
+      const pinMaskImg = await createImageBitmap(maskBlob);
+      const pinMask = document.createElement('canvas');
+      pinMask.width = sw; pinMask.height = sh;
+      const pmctx = pinMask.getContext('2d');
+      pmctx.imageSmoothingEnabled = false;
+      pmctx.drawImage(pinMaskImg, 0, 0, sw, sh);
+      pinMaskImg.close?.();
+      maskBlob = await canvasToBlob(pinMask);
+    }
+
+    form.append('image', base, 'base.png');
+    form.append('image', refPinned, 'ref.png');
+    if (maskBlob) form.append('mask', maskBlob, 'mask.png');
+    form.append('size', `${sw}x${sh}`);
+    // DEBUG: dump the exact base+mask we're about to send, as data URLs,
+    // onto window so we can inspect them in DevTools (or screenshot them).
+    try {
+      if (!window.__lastMaskB64) window.__lastMaskB64 = {};
+      window.__lastMaskB64.base = await blobToDataUrl(base);
+      window.__lastMaskB64.mask = await blobToDataUrl(maskBlob);
+      const probe = await createImageBitmap(maskBlob);
+      const pc = document.createElement('canvas');
+      pc.width = probe.width; pc.height = probe.height;
+      const pctx = pc.getContext('2d'); pctx.drawImage(probe, 0, 0);
+      const pd = pctx.getImageData(0, 0, probe.width, probe.height).data;
+      let tp = 0, minX = 1e9, minY = 1e9, maxX = -1, maxY = -1;
+      for (let i = 3, p = 0; i < pd.length; i += 4, p++) {
+        if (pd[i] < 32) {
+          tp++;
+          const x = p % probe.width, y = (p / probe.width) | 0;
+          if (x < minX) minX = x; if (y < minY) minY = y;
+          if (x > maxX) maxX = x; if (y > maxY) maxY = y;
+        }
+      }
+      probe.close?.();
+      console.log(`[callEditsApi] PINNED MASK: ${tp} transparent pixels (bbox x:${minX}-${maxX} y:${minY}-${maxY}) out of ${pd.length / 4}`);
+      console.log('[callEditsApi] inspect → window.__lastMaskB64.mask (open as URL in new tab)');
+    } catch (dbgErr) { console.warn('[callEditsApi] mask debug dump failed', dbgErr); }
+    console.log('[callEditsApi] pinned base+mask to', sw + 'x' + sh, 'with size=' + sw + 'x' + sh);
+  } else {
+    form.append('image', base, 'base.png');
+    form.append('image', refBlob, 'ref.png');
+    if (maskBlob) form.append('mask', maskBlob, 'mask.png');
+    if (size && size !== 'auto') form.append('size', size);
+  }
+
+  const endpoint = getApiEndpoint();
+  console.log('[callEditsApi] === REQUEST START ===');
+  console.log('[callEditsApi] endpoint:', endpoint);
+  console.log('[callEditsApi] proxyMode:', proxyMode);
+  console.log('[callEditsApi] key prefix:', key.slice(0, 12) + '...');
+  console.log('[callEditsApi] prompt length:', prompt.length);
+  console.log('[callEditsApi] baseBlob:', baseBlob.type, baseBlob.size, 'bytes');
+  console.log('[callEditsApi] refBlob:', refBlob.type, refBlob.size, 'bytes');
+  console.log('[callEditsApi] maskBlob:', maskBlob.type, maskBlob.size, 'bytes');
+  console.log('[callEditsApi] FormData entries:');
+  for (const [k, v] of form.entries()) {
+    if (v instanceof Blob) {
+      console.log('   ', k, `Blob(${v.type}, ${v.size}B, name="${v.name || 'unnamed'}")`);
+    } else {
+      console.log('   ', k, String(v).slice(0, 100));
+    }
+  }
+
+  let res;
+  try {
+    console.log('[callEditsApi] → fetch() starting...');
+    res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}` },
+      body: form
+    });
+    console.log('[callEditsApi] → fetch() completed');
+  } catch (netErr) {
+    console.error('[callEditsApi] !!! NETWORK ERROR (CORS / DNS / proxy down / firewall) !!!');
+    console.error('[callEditsApi]    name:', netErr.name);
+    console.error('[callEditsApi]    message:', netErr.message);
+    console.error('[callEditsApi]    stack:', netErr.stack);
+    console.error('[callEditsApi]    endpoint:', endpoint);
+    console.error('[callEditsApi]    proxyMode:', proxyMode);
+    throw new Error(`NETWORK_ERROR: ${netErr.message} (endpoint: ${endpoint}, proxyMode: ${proxyMode})`);
+  }
+
+  console.log('[callEditsApi] ← Response status:', res.status, res.statusText);
+  console.log('[callEditsApi] ← Response headers:', Object.fromEntries(res.headers.entries()));
+  console.log('[callEditsApi] ← Response type:', res.type); // basic, cors, opaque, etc.
+
+  if (!res.ok) {
+    let errText;
+    try {
+      errText = await res.text();
+    } catch {
+      errText = '(could not read response body)';
+    }
+    console.error('[callEditsApi] !!! HTTP ERROR', res.status, '!!!');
+    console.error('[callEditsApi]    body:', errText.slice(0, 2000));
+    let errMsg = `HTTP ${res.status} ${res.statusText}`;
+    try {
+      const errJson = JSON.parse(errText);
+      if (errJson.error?.message) errMsg += ': ' + errJson.error.message;
+    } catch {}
+    throw new Error(errMsg);
+  }
+
+  let json;
+  try {
+    json = await res.json();
+  } catch (e) {
+    console.error('[callEditsApi] !!! JSON PARSE ERROR !!!', e);
+    throw new Error('Invalid JSON response');
+  }
+  console.log('[callEditsApi] ✓ SUCCESS JSON:', json);
+  let imgUrl = extractImageUrl(json);
+
+  // If the upstream returned a plain URL (or image_url), fetch it through the
+  // same-origin proxy and re-encode as a data URL — so the Bear step can later
+  // drawImage it to a canvas + .toBlob() it WITHOUT cross-origin taint.
+  // (Direct cross-origin <img> from xiangsuai would taint the next canvas.)
+  if (imgUrl && !imgUrl.startsWith('data:')) {
+    console.log('[callEditsApi] upstream returned URL — re-fetching via proxy as data URL:', imgUrl);
+    imgUrl = await urlToDataUrl(imgUrl);
+  }
+
+  if (!imgUrl) {
+    console.error('[callEditsApi] !!! NO IMAGE FIELD IN RESPONSE !!!', json);
+    throw new Error('No image returned (b64_json missing)');
+  }
+  console.log('[callEditsApi] ✓ image field:', imgUrl.slice(0, 80) + (imgUrl.length > 80 ? '...' : ''));
+  return imgUrl;
+}
+
+// Fetch an upstream image URL through the local proxy (same-origin) and return
+// a data URL. We map the upstream host to a dedicated proxy route so the browser
+// never makes a cross-origin fetch (which would taint the next canvas).
+//   https://www.xiangsuai.cn/<path>  →  http://localhost:3001/api/<path>
+//   https://files.closeai.fans/<path> →  http://localhost:3001/files/<path>
+async function urlToDataUrl(absUrl) {
+  let proxied;
+  try {
+    const u = new URL(absUrl);
+    if (u.hostname === 'files.closeai.fans' || u.pathname.startsWith('/filesystem')) {
+      proxied = 'http://localhost:3001/files' + u.pathname + u.search;
+    } else {
+      // default: treat as xiangsuai host
+      proxied = 'http://localhost:3001/api' + u.pathname + u.search;
+    }
+  } catch {
+    proxied = absUrl; // not a URL — leave as-is
+  }
+  console.log('[urlToDataUrl] fetching', proxied);
+  const r = await fetch(proxied);
+  if (!r.ok) throw new Error('proxy status ' + r.status);
+  const blob = await r.blob();
+  // Guard: upstream may return an HTML error/redirect page with the wrong
+  // content-type — reject it so we don't turn an HTML page into a broken img.
+  if (!blob.type.startsWith('image/')) {
+    const text = await blob.text();
+    throw new Error('proxy did not return an image (got ' + blob.type + '): ' + text.slice(0, 120));
+  }
+  return await new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result);
+    fr.onerror = reject;
+    fr.readAsDataURL(blob);
+  });
+}
+
+// Extract image URL/data from xiangsuai response — tolerant of multiple field names
+// per canvas doc: b64_json, url, image_url (string or {url}), result_url, output_url
+// recursively searches data, result, output, images, image, content containers.
+function extractImageUrl(obj) {
+  if (!obj || typeof obj !== 'object') return null;
+
+  // Direct image carriers
+  for (const key of ['b64_json', 'url', 'result_url', 'output_url']) {
+    const v = obj[key];
+    if (typeof v === 'string' && v.trim()) {
+      return key === 'b64_json' ? 'data:image/png;base64,' + v : v;
+    }
+  }
+  // image_url: string OR { url: "..." }
+  const iu = obj.image_url;
+  if (iu) {
+    if (typeof iu === 'string' && iu.trim()) return iu;
+    if (iu.url && typeof iu.url === 'string') return iu.url;
+  }
+
+  // Recurse into known containers
+  for (const key of ['data', 'result', 'output', 'images', 'image', 'content']) {
+    const v = obj[key];
+    if (Array.isArray(v)) {
+      for (const item of v) {
+        const found = extractImageUrl(item);
+        if (found) return found;
+      }
+    } else if (v && typeof v === 'object') {
+      const found = extractImageUrl(v);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+// ========== GENERATE APPLE ==========
+// Option B flow: we no longer ask the model to place the apple in region A
+// (gpt-image-2's mask is prompt-based guidance, NOT precise placement — it
+// would drop the apple anywhere). Instead:
+//   1. Compute the bbox of the red strokes (region A).
+//   2. Paste the apple INTO that bbox on top of the current bag canvas → BASE.
+//   3. Build a SEAM mask: only an annulus around the pasted apple is editable;
+//      the apple interior + everything else stays opaque.
+//   4. Send base (with apple already on it) as the image AND as the "ref",
+//      seam mask, and a prompt that says "blend the seam, do not relocate".
+// The model feathers the seam so the apple looks printed on the bag, sitting
+// exactly where the user painted.
+els.generateAppleBtn.addEventListener('click', async () => {
+  const key = els.apiKey.value.trim();
+  if (!key) { setStatus('請先貼上 OpenAI API Key', 'error'); showToast('請先貼上 OpenAI API Key', 'error'); return; }
+  if (!state.bagImg || !state.appleImg) { setStatus('缺少 Bag 或 Apple 圖片', 'error'); showToast('缺少 Bag 或 Apple 圖片', 'error'); return; }
+  if (!maskHasRegion('a')) { setStatus('請先在 A 區畫出至少一個筆觸', 'error'); showToast('請先在 A 區畫出至少一個筆觸', 'error'); return; }
+
+  setStatus('Pasting apple into region A and blending seam…', 'info');
+  showToast('Generating Apple…', 'info');
+  els.generateAppleBtn.disabled = true;
+
+  try {
+    const { baseBlob, maskBlob, pasteRect } = await buildPastedBaseAndSeamMask('a', state.appleImg);
+    // Use the SAME base (bag+apple) as both image and ref: the model has the
+    // apple right there in context and only needs to blend the seam.
+    const resultUrl = await callEditsApi(
+      baseBlob,
+      baseBlob, // ref = base (apple already composited, so nothing to relocate)
+      maskBlob,
+      els.promptApple.value,
+      { size: null }
+    );
+
+    state.appleResultUrl = resultUrl;
+    state.phase = 2; // apple done
+    addVersion('apple', resultUrl);
+
+    // Mirror the blended result back onto the live main canvas so the Bear step
+    // sees the apple already settled on the bag.
+    await paintResultToMainCanvas(resultUrl);
+
+    // Unlock B region
+    els.btnB.disabled = false;
+    els.bearInput.disabled = false;
+    els.generateBearBtn.classList.remove('hidden');
+    // Auto-switch paint mode to B so the user paints blue (not red) for the bear.
+    els.btnB.click();
+
+    setStatus('Apple done — now paint region B (blue), upload bear, then Generate Bear B', 'ok');
+    showToast('Apple step completed', 'success');
+  } catch (err) {
+    console.error('Apple step error:', err);
+    const msg = !err || !err.message ? '未知錯誤（請看 console）'
+      : err.message === 'NO_API_KEY' ? '請先貼上 OpenAI API Key'
+      : err.message.startsWith('HTTP') ? `API 錯誤：${err.message}`
+      : `連線錯誤：${err.message}`;
+    setStatus(msg, 'error');
+    showToast(msg, 'error');
+  } finally {
+    els.generateAppleBtn.disabled = false;
+    updateButtons();
+  }
+});
+
+// ========== GENERATE BEAR ==========
+// Same Option-B flow as Apple, but the base already contains the apple (from
+// step 1), and we paste the bear into the bbox of the blue strokes (region B).
+els.generateBearBtn.addEventListener('click', async () => {
+  const key = els.apiKey.value.trim();
+  if (!key) { setStatus('請先貼上 OpenAI API Key', 'error'); showToast('請先貼上 OpenAI API Key', 'error'); return; }
+  if (!state.appleResultUrl) { setStatus('Apple 步驟尚未完成', 'error'); showToast('Apple 步驟尚未完成', 'error'); return; }
+  if (!state.bearImg) { setStatus('缺少 Bear 圖片', 'error'); showToast('缺少 Bear 圖片', 'error'); return; }
+  if (!maskHasRegion('b')) { setStatus('請先在 B 區畫出至少一個筆觸', 'error'); showToast('請先在 B 區畫出至少一個筆觸', 'error'); return; }
+
+  setStatus('Pasting bear into region B and blending seam…', 'info');
+  showToast('Generating Bear…', 'info');
+  els.generateBearBtn.disabled = true;
+
+  try {
+    const { baseBlob, maskBlob } = await buildPastedBaseAndSeamMask('b', state.bearImg);
+    const resultUrl = await callEditsApi(
+      baseBlob,
+      baseBlob, // ref = base (bear already composited)
+      maskBlob,
+      els.promptBear.value,
+      { size: null }
+    );
+
+    state.bearResultUrl = resultUrl;
+    state.phase = 4; // done
+    addVersion('bear', resultUrl);
+
+    // Mirror the final blended result back onto the live main canvas.
+    await paintResultToMainCanvas(resultUrl);
+
+    // Show final result
+    els.resultPreview.classList.remove('empty');
+    els.resultPreview.innerHTML = '';
+    const im = document.createElement('img');
+    im.src = resultUrl;
+    im.className = 'result-img';
+    els.resultPreview.appendChild(im);
+
+    els.downloadBtn.classList.remove('hidden');
+
+    setStatus('Done — final result ready', 'ok');
+    showToast('Bear step completed', 'success');
+  } catch (err) {
+    console.error('Bear step error:', err);
+    const msg = !err || !err.message ? '未知錯誤（請看 console）'
+      : err.message === 'NO_API_KEY' ? '請先貼上 OpenAI API Key'
+      : err.message.startsWith('HTTP') ? `API 錯誤：${err.message}`
+      : `連線錯誤：${err.message}`;
+    setStatus(msg, 'error');
+    showToast(msg, 'error');
+  } finally {
+    els.generateBearBtn.disabled = false;
+    updateButtons();
+  }
+});
+
+// Paint a result (data URL) back onto the live main canvas at full canvas
+// dimensions, so the next step sees the composite on-bag. Keeps the mask
+// canvas untouched (the brush strokes remain for reference / re-run).
+async function paintResultToMainCanvas(dataUrl) {
+  const img = new Image();
+  img.src = dataUrl;
+  await new Promise((res, rej) => { img.onload = res; img.onerror = rej; });
+  const w = state.mainCanvas.width, h = state.mainCanvas.height;
+  state.mainCtx.clearRect(0, 0, w, h);
+  state.mainCtx.drawImage(img, 0, 0, w, h);
+}
+
+// ========== DOWNLOAD ==========
+els.downloadBtn.addEventListener('click', () => {
+  if (!state.bearResultUrl) return;
+  const a = document.createElement('a');
+  a.href = state.bearResultUrl;
+  a.download = 'bag-composite.png';
+  a.click();
+  showToast('Downloaded bag-composite.png', 'success');
+});
+
+// ========== INIT ==========
+updateButtons();
+
+// ========== DEBUG: Test Proxy ==========
+document.getElementById('debugBtn').addEventListener('click', async () => {
+  const key = els.apiKey.value.trim();
+  if (!key) { showToast('請先填 API Key', 'error'); return; }
+
+  const endpoint = getApiEndpoint();
+  console.log('[DEBUG] Testing proxy:', endpoint);
+  showToast('Testing proxy...', 'info');
+
+  try {
+    // Send a minimal test request (will likely 400 but proves connectivity)
+    const form = new FormData();
+    form.append('model', 'gpt-image-2');
+    form.append('prompt', 'test');
+    // Create a tiny 1x1 transparent PNG as dummy image
+    const canvas = document.createElement('canvas');
+    canvas.width = 1; canvas.height = 1;
+    const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+    form.append('image[]', blob, 'test.png');
+
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}` },
+      body: form
+    });
+
+    const text = await res.text();
+    console.log('[DEBUG] Proxy test response:', res.status, text);
+    showToast(`Proxy OK: HTTP ${res.status}`, res.ok ? 'success' : 'error');
+  } catch (err) {
+    console.error('[DEBUG] Proxy test failed:', err);
+    showToast(`Proxy FAILED: ${err.message}`, 'error');
+  }
+});
+</script>
+</body>
+</html>
