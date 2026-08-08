@@ -247,7 +247,7 @@
     <div>
       <div class="section-title">API Key</div>
       <input type="password" id="apiKey" class="key-input" placeholder="sk-..." autocomplete="off" value="" />
-      <div style="font-size:0.7rem;color:var(--muted);margin-top:4px">預設已填入 xiangsuai.cn Key（可自行覆蓋）</div>
+      <div style="font-size:0.7rem;color:var(--muted);margin-top:4px">自動讀取 <code>local.key</code>（已 gitignore，不會上 GitHub）；無則手動貼上</div>
     </div>
 
     <div>
@@ -362,6 +362,24 @@ High fidelity, photorealistic product photo.</textarea>
 </div>
 
 <script type="module">
+// ========== LOCAL API KEY (local.key, gitignored) ==========
+// On boot, fetch ./local.key (gitignored so it never reaches GitHub) and
+// pre-fill the API key input. The user no longer has to paste it each reload.
+// If the file is absent, the input stays empty and the user pastes manually.
+(async function loadLocalKey() {
+  try {
+    const r = await fetch('./local.key');
+    if (!r.ok) return; // 404 is fine — no local key
+    const key = (await r.text()).trim();
+    if (key) {
+      const el = document.getElementById('apiKey');
+      el.value = key;
+      // Keep it out of the DOM's persistent state/memory exposure a little:
+      console.log('[local.key] loaded (prefix ' + key.slice(0, 12) + '...)');
+    }
+  } catch (e) { /* fetch failure (file:// or offline) — silently fall back */ }
+})();
+
 // ========== STATE ==========
 const state = {
   // Images
