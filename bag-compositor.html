@@ -91,6 +91,7 @@
     max-height: calc(100vh - 140px);
     cursor: crosshair;
   }
+  #regionIdCanvas { position: absolute; top: 0; left: 0; pointer-events: none; display: none; }
   #maskCanvas { position: absolute; top: 0; left: 0; pointer-events: none; opacity: 0.45; }
   label { font-size: 0.75rem; color: var(--muted); display: block; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.04em; }
   .btn {
@@ -120,25 +121,89 @@
   .file-btn { cursor: pointer; }
   .slider-row { display: flex; align-items: center; gap: 10px; }
   input[type="range"] { flex: 1; accent-color: var(--accent); }
-  .region-toggle {
+  /* Region manager chip rows */
+  #regionList { display: flex; flex-direction: column; gap: 6px; }
+  .region-row {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 6px;
-  }
-  .region-btn {
-    padding: 10px 0;
+    grid-template-columns: auto 1fr auto;
+    grid-template-rows: auto auto;
+    grid-template-areas:
+      "swatch name del"
+      "src    src  src";
+    gap: 4px 6px;
+    align-items: center;
+    padding: 6px 8px;
     border-radius: 6px;
     border: 2px solid var(--border);
     background: #1e222a;
-    color: var(--text);
     cursor: pointer;
-    font-weight: 600;
-    font-size: 0.8rem;
+    transition: border-color 0.15s, background 0.15s;
   }
-  .region-btn.active-a { border-color: var(--region-a); background: rgba(239,68,68,0.15); color: #fca5a5; }
-  .region-btn.active-b { border-color: var(--region-b); background: rgba(59,130,246,0.15); color: #93c5fd; }
-  .region-btn.active-erase { border-color: #6b7280; background: rgba(107,114,128,0.2); }
-  .region-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .region-row.active { background: rgba(59,130,246,0.12); border-color: var(--accent); }
+  .region-row .swatch {
+    grid-area: swatch;
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.25);
+    display: inline-block;
+  }
+  .region-row .region-name {
+    grid-area: name;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: var(--text);
+    font-size: 0.82rem;
+    padding: 3px 5px;
+    width: 100%;
+    min-width: 0;
+  }
+  .region-row .region-name:focus { border-color: var(--border); background: #111; outline: none; }
+  .region-row .region-del {
+    grid-area: del;
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+  .region-row .region-del:hover { color: var(--danger); background: rgba(239,68,68,0.12); }
+  .region-row .src-row {
+    grid-area: src;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .region-row .src-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: 4px;
+    padding: 4px 8px;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    background: #252a33;
+    color: var(--text);
+    font-size: 0.72rem;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .region-row .src-btn:hover { background: #2f3541; }
+  .region-row .src-thumb {
+    width: 30px; height: 30px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    object-fit: cover;
+    display: none;
+  }
+  .region-row .src-thumb.has { display: block; }
+  .region-row .status-dot {
+    width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0;
+    background: var(--muted); /* gray = no paint/src */
+  }
+  .region-row .status-dot.yellow { background: #eab308; } /* painted, no src */
+  .region-row .status-dot.green  { background: var(--success); } /* ready */
+  #addRegionBtn { border-style: dashed; }
   .preview-box {
     border: 1px solid var(--border);
     border-radius: 8px;
@@ -185,6 +250,7 @@
     font-family: inherit;
   }
   .result-img { max-width: 100%; border-radius: 8px; border: 1px solid var(--border); }
+  /* per-region version thumbs gallery (unused now but kept for parity) */
   .version-list { display: flex; gap: 6px; flex-wrap: wrap; }
   .version-thumb {
     width: 80px;
@@ -238,7 +304,7 @@
     <h1>Bag Region Compositor</h1>
     <span class="badge">GPT Image 2</span>
   </div>
-  <div style="font-size:0.8rem;color:var(--muted)">序列化合成：A 區→Apple → B 區→Bear</div>
+  <div style="font-size:0.8rem;color:var(--muted)">N 區並行設定 → 一次產生全部</div>
 </header>
 
 <div class="main">
@@ -267,12 +333,14 @@
     </div>
 
     <div>
-      <div class="section-title">2. Paint Region A (Red)</div>
-      <div class="region-toggle">
-        <button class="region-btn active-a" id="btnA" data-region="a" title="Paint Region A (Apple)">A (Apple)</button>
-        <button class="region-btn" id="btnB" data-region="b" disabled title="Unlock after Apple step">B (Bear)</button>
-        <button class="region-btn" id="btnErase" data-region="erase">Eraser</button>
-      </div>
+      <div class="section-title">2. Regions — paint, rename, upload a source each</div>
+      <div id="regionList"></div>
+      <button class="btn" id="addRegionBtn" style="margin-top:8px">+ Add Region</button>
+    </div>
+
+    <div>
+      <div class="section-title">Paint Mode</div>
+      <button class="btn" id="eraseBtn">Eraser (toggle)&nbsp;·&nbsp;<span id="eraseState">OFF</span></button>
     </div>
 
     <div>
@@ -287,76 +355,44 @@
       <button class="btn" id="undoBtn" disabled>Undo</button>
       <button class="btn" id="redoBtn" disabled>Redo</button>
     </div>
-    <button class="btn danger" id="clearBtn">Clear All Regions</button>
+    <button class="btn danger" id="clearBtn">Clear All Paint</button>
 
     <div>
-      <div class="section-title">3. Reference Images</div>
-      <label class="btn file-btn" for="appleInput" style="margin-bottom:8px">Upload Apple</label>
-      <input type="file" id="appleInput" accept="image/*" />
-      <label class="btn file-btn" for="bearInput" style="margin-bottom:8px" disabled>Upload Bear</label>
-      <input type="file" id="bearInput" accept="image/*" disabled />
-    </div>
-
-    <div>
-      <div class="section-title">Prompt — Apple Step</div>
-      <textarea class="prompt" id="promptApple" spellcheck="false">This image already has the apple pasted onto the bag in the masked area.
-Do NOT add, move, replace, or redraw the apple. The apple's position and shape are FINAL.
-Your ONLY job: blend the seam around the masked region so the apple looks naturally printed/embroidered on the bag fabric. Smooth the edge, match lighting, perspective, fabric wrinkles and material of the bag exactly.
-Keep the apple interior and everything outside the mask completely unchanged.
+      <div class="section-title">Prompt (applies to every region)</div>
+      <textarea class="prompt" id="promptAll" spellcheck="false">This image already has the next source image pasted onto the bag in the masked area.
+Do NOT add, move, replace, or redraw the object. Its position and shape are FINAL.
+Your ONLY job: blend the seam around the masked region so the object looks naturally printed/embroidered on the bag fabric.
+Smooth the edge; match lighting, perspective, fabric wrinkles, and material exactly.
+Preserve all previously placed objects elsewhere on the bag exactly as they are. Do not modify them.
+Keep the object interior and everything outside the mask completely unchanged.
 High fidelity, photorealistic product photo.</textarea>
     </div>
 
-    <div>
-      <div class="section-title">Prompt — Bear Step</div>
-      <textarea class="prompt" id="promptBear" spellcheck="false">This image already has the bear pasted onto the bag in the masked area.
-Do NOT add, move, replace, or redraw the bear. The bear's position and shape are FINAL.
-Your ONLY job: blend the seam around the masked region so the bear looks naturally printed/embroidered on the bag fabric. Smooth the edge, match lighting, perspective, fabric wrinkles and material of the bag exactly.
-Preserve the apple already placed elsewhere on the bag exactly as it is. Do not modify it.
-Keep the bear interior and everything outside the mask completely unchanged.
-High fidelity, photorealistic product photo.</textarea>
-    </div>
-
-    <button class="btn primary" id="generateAppleBtn" disabled>Generate Apple A</button>
-    <button class="btn primary hidden" id="generateBearBtn" disabled>Generate Bear B</button>
+    <button class="btn primary" id="generateAllBtn" disabled>Generate All</button>
     <button class="btn primary hidden" id="downloadBtn" disabled>Download Final</button>
     <button class="btn" id="debugBtn" style="margin-top:8px">Debug: Test Proxy</button>
 
-    <div id="status" class="status info">Ready — upload bag, paint region A, upload apple</div>
+    <div id="status" class="status info">Ready — upload a bag image, then add regions</div>
   </aside>
 
   <!-- CENTER CANVAS -->
   <div class="canvas-wrap">
     <div class="canvas-container" id="canvasContainer" class="hidden">
       <canvas id="mainCanvas"></canvas>
+      <canvas id="regionIdCanvas"></canvas>
       <canvas id="maskCanvas"></canvas>
     </div>
     <div id="placeholder" style="color:var(--muted);text-align:center">
       <p style="font-size:1.1rem;margin-bottom:8px">Upload a bag image to start</p>
-      <p style="font-size:0.85rem">Then paint region A (red) for apple</p>
+      <p style="font-size:0.85rem">Then add regions, paint each, and upload a source image per region</p>
     </div>
   </div>
 
   <!-- RIGHT PREVIEW -->
   <aside class="rightbar">
     <div>
-      <div class="section-title">Apple Reference</div>
-      <div class="preview-box empty" id="applePreview">No apple</div>
-    </div>
-    <div>
-      <div class="section-title">Bear Reference</div>
-      <div class="preview-box empty" id="bearPreview">No bear</div>
-    </div>
-    <div>
-      <div class="section-title">Apple Versions (latest left)</div>
-      <div class="version-list" id="appleVersions"></div>
-    </div>
-    <div>
-      <div class="section-title">Bear Versions (latest left)</div>
-      <div class="version-list" id="bearVersions"></div>
-    </div>
-    <div>
       <div class="section-title">Final Result</div>
-      <div class="preview-box empty" id="resultPreview">Waiting for Bear step…</div>
+      <div class="preview-box empty" id="resultPreview">Waiting for Generate All…</div>
     </div>
   </aside>
 </div>
@@ -384,62 +420,57 @@ High fidelity, photorealistic product photo.</textarea>
 const state = {
   // Images
   bagImg: null,           // HTMLImageElement
-  appleImg: null,
-  bearImg: null,
-  // Canvas
+  // Canvases
   mainCanvas: null,
-  maskCanvas: null,
+  maskCanvas: null,        // visible display overlay (colors)
+  regionIdCanvas: null,    // HIDDEN ground-truth id per pixel (single source of truth)
   mainCtx: null,
   maskCtx: null,
+  regionIdCtx: null,
+  // Regions
+  regions: [],             // [{ id, name, color, colorRgb, sourceImg, pasteRect, versions }]
+  nextRegionId: 1,
+  activeRegionId: null,    // current paint target; null when Eraser is active
+  paintMode: 'paint',      // 'paint' | 'erase'
+  activeColorRgb: null,    // display color of the active region (for drawing)
   // Drawing
-  region: 'a',            // 'a' | 'b' | 'erase'
   brushSize: 24,
   isDrawing: false,
   lastX: 0,
   lastY: 0,
-  // History (undo/redo)
+  // History (undo/redo) — snapshots of regionIdCanvas
   history: [],
   historyIndex: -1,
   maxHistory: 40,
-  // Versions (max 3 each)
-  versions: { apple: [], bear: [] },
+  maxRegions: 8,           // cap on painted regions per Generate run
   maxVersions: 3,
-  // Results
-  appleResultUrl: null,   // data URL from Apple step
-  bearResultUrl: null,    // data URL from Bear step (final)
-  // Wizard phase
-  phase: 0, // 0=init, 1=apple ready, 2=apple done, 3=bear ready, 4=done
+  // Result
+  finalResultUrl: null,
 };
 
 // ========== DOM REFERENCES ==========
 const els = {
   apiKey: document.getElementById('apiKey'),
   bagInput: document.getElementById('bagInput'),
-  appleInput: document.getElementById('appleInput'),
-  bearInput: document.getElementById('bearInput'),
-  btnA: document.getElementById('btnA'),
-  btnB: document.getElementById('btnB'),
-  btnErase: document.getElementById('btnErase'),
+  regionList: document.getElementById('regionList'),
+  addRegionBtn: document.getElementById('addRegionBtn'),
+  eraseBtn: document.getElementById('eraseBtn'),
+  eraseState: document.getElementById('eraseState'),
   brushSize: document.getElementById('brushSize'),
   brushVal: document.getElementById('brushVal'),
   undoBtn: document.getElementById('undoBtn'),
   redoBtn: document.getElementById('redoBtn'),
   clearBtn: document.getElementById('clearBtn'),
-  promptApple: document.getElementById('promptApple'),
-  promptBear: document.getElementById('promptBear'),
-  generateAppleBtn: document.getElementById('generateAppleBtn'),
-  generateBearBtn: document.getElementById('generateBearBtn'),
+  promptAll: document.getElementById('promptAll'),
+  generateAllBtn: document.getElementById('generateAllBtn'),
   downloadBtn: document.getElementById('downloadBtn'),
   status: document.getElementById('status'),
-  applePreview: document.getElementById('applePreview'),
-  bearPreview: document.getElementById('bearPreview'),
-  appleVersions: document.getElementById('appleVersions'),
-  bearVersions: document.getElementById('bearVersions'),
   resultPreview: document.getElementById('resultPreview'),
   canvasContainer: document.getElementById('canvasContainer'),
   placeholder: document.getElementById('placeholder'),
   mainCanvas: document.getElementById('mainCanvas'),
   maskCanvas: document.getElementById('maskCanvas'),
+  regionIdCanvas: document.getElementById('regionIdCanvas'),
 };
 
 // ========== UTILITIES ==========
@@ -463,44 +494,72 @@ function updateButtons() {
   // Undo/Redo
   els.undoBtn.disabled = state.historyIndex <= 0;
   els.redoBtn.disabled = state.historyIndex >= state.history.length - 1;
-  // Generate Apple
-  const hasBag = !!state.bagImg;
-  const hasApple = !!state.appleImg;
-  const hasAMask = maskHasRegion('a');
-  els.generateAppleBtn.disabled = !(hasBag && hasApple && hasAMask);
-  // Generate Bear
-  const hasBear = !!state.bearImg;
-  const hasBMask = maskHasRegion('b');
-  const appleDone = state.phase >= 2;
-  els.generateBearBtn.disabled = !(appleDone && hasBear && hasBMask);
+  // Generate All — requires bag + at least one painted region with a source
+  const check = canGenerate();
+  els.generateAllBtn.disabled = !check.ok;
   // Download
-  els.downloadBtn.disabled = !(state.phase >= 4);
+  els.downloadBtn.disabled = !state.finalResultUrl;
 }
 
-function maskHasRegion(region) {
-  if (!state.maskCtx) return false;
-  const { width, height } = state.maskCanvas;
-  const data = state.maskCtx.getImageData(0, 0, width, height).data;
-  const targetR = region === 'a' ? 239 : 59; // approx red/blue
-  const targetG = region === 'a' ? 68 : 130;
-  const targetB = region === 'a' ? 68 : 246;
+// Returns true if any pixel on the hidden id-canvas belongs to `id`.
+function regionHasPaint(id) {
+  if (!state.regionIdCtx) return false;
+  const { width, height } = state.regionIdCanvas;
+  const data = state.regionIdCtx.getImageData(0, 0, width, height).data;
   for (let i = 0; i < data.length; i += 4) {
-    const r = data[i], g = data[i+1], b = data[i+2], a = data[i+3];
-    if (a > 20) {
-      // Check if color matches region (rough match)
-      const dr = Math.abs(r - targetR), dg = Math.abs(g - targetG), db = Math.abs(b - targetB);
-      if (dr < 80 && dg < 80 && db < 80) return true;
-    }
+    if (data[i] === id && data[i + 3] > 20) return true;
   }
   return false;
 }
 
+// Set of all region ids present on the id-canvas (painted).
+function paintedRegionIds() {
+  const set = new Set();
+  if (!state.regionIdCtx) return set;
+  const { width, height } = state.regionIdCanvas;
+  const data = state.regionIdCtx.getImageData(0, 0, width, height).data;
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] > 20) set.add(data[i]);
+  }
+  return set;
+}
+
+// Bounding box of the painted strokes for a given region id (exact match on
+// the hidden id-canvas). Returns {x,y,w,h} in canvas pixel coords or null.
+function regionBBox(id) {
+  if (!state.regionIdCtx) return null;
+  const w = state.regionIdCanvas.width, h = state.regionIdCanvas.height;
+  const data = state.regionIdCtx.getImageData(0, 0, w, h).data;
+  let minX = 1e9, minY = 1e9, maxX = -1, maxY = -1, hit = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      if (data[i] === id && data[i + 3] > 20) {
+        if (x < minX) minX = x; if (y < minY) minY = y;
+        if (x > maxX) maxX = x; if (y > maxY) maxY = y;
+        hit++;
+      }
+    }
+  }
+  if (!hit) return null;
+  const pad = Math.round(Math.max(w, h) * 0.04);
+  return {
+    x: Math.max(0, minX - pad),
+    y: Math.max(0, minY - pad),
+    w: Math.min(w - 1, maxX + pad) - Math.max(0, minX - pad) + 1,
+    h: Math.min(h - 1, maxY + pad) - Math.max(0, minY - pad) + 1,
+    hitCount: hit,
+  };
+}
+
 // ========== HISTORY (Undo / Redo) ==========
+// Snapshots the HIDDEN id-canvas (single source of truth). The visible color
+// overlay is regenerated from it after any restore.
 function pushHistory() {
   if (state.historyIndex < state.history.length - 1) {
     state.history = state.history.slice(0, state.historyIndex + 1);
   }
-  const snapshot = state.maskCtx.getImageData(0, 0, state.maskCanvas.width, state.maskCanvas.height);
+  const snapshot = state.regionIdCtx.getImageData(0, 0, state.regionIdCanvas.width, state.regionIdCanvas.height);
   state.history.push(snapshot);
   if (state.history.length > state.maxHistory) {
     state.history.shift();
@@ -513,15 +572,40 @@ function pushHistory() {
 function undo() {
   if (state.historyIndex <= 0) return;
   state.historyIndex--;
-  state.maskCtx.putImageData(state.history[state.historyIndex], 0, 0);
+  state.regionIdCtx.putImageData(state.history[state.historyIndex], 0, 0);
+  regenerateDisplayOverlay();
   updateButtons();
 }
 
 function redo() {
   if (state.historyIndex >= state.history.length - 1) return;
   state.historyIndex++;
-  state.maskCtx.putImageData(state.history[state.historyIndex], 0, 0);
+  state.regionIdCtx.putImageData(state.history[state.historyIndex], 0, 0);
+  regenerateDisplayOverlay();
   updateButtons();
+}
+
+// Rebuild the cosmetic color overlay (#maskCanvas) from the hidden id-canvas.
+// One pass; transparent id-canvas pixels → transparent overlay.
+function regenerateDisplayOverlay() {
+  if (!state.regionIdCtx) return;
+  const w = state.regionIdCanvas.width, h = state.regionIdCanvas.height;
+  state.maskCtx.clearRect(0, 0, w, h);
+  const src = state.regionIdCtx.getImageData(0, 0, w, h);
+  const dst = state.maskCtx.createImageData(w, h);
+  // Map id → display color (rgb)
+  const colorById = new Map();
+  state.regions.forEach(r => colorById.set(r.id, r.colorRgb));
+  for (let i = 0; i < src.data.length; i += 4) {
+    const a = src.data[i + 3];
+    if (a > 20) {
+      const c = colorById.get(src.data[i]);
+      if (c) {
+        dst.data[i] = c.r; dst.data[i + 1] = c.g; dst.data[i + 2] = c.b; dst.data[i + 3] = 255;
+      }
+    }
+  }
+  state.maskCtx.putImageData(dst, 0, 0);
 }
 
 // ========== IMAGE LOADING ==========
@@ -551,55 +635,20 @@ async function imgSrcToBlob(src) {
   return await r.blob();
 }
 
-// Compute the bounding box of the painted strokes for a given region (a/b).
-// Returns {x,y,w,h} in mask-canvas pixel coords, or null if nothing painted.
-function regionBBox(region) {
-  if (!state.maskCtx) return null;
-  const w = state.maskCanvas.width, h = state.maskCanvas.height;
-  const data = state.maskCtx.getImageData(0, 0, w, h).data;
-  const targetR = region === 'a' ? 239 : 59;
-  const targetG = region === 'a' ? 68 : 130;
-  const targetB = region === 'a' ? 68 : 246;
-  const TOL = 80;
-  let minX = 1e9, minY = 1e9, maxX = -1, maxY = -1, hit = 0;
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const i = (y * w + x) * 4;
-      const a = data[i + 3];
-      if (a > 20) {
-        const dr = Math.abs(data[i] - targetR);
-        const dg = Math.abs(data[i + 1] - targetG);
-        const db = Math.abs(data[i + 2] - targetB);
-        if (dr < TOL && dg < TOL && db < TOL) {
-          if (x < minX) minX = x; if (y < minY) minY = y;
-          if (x > maxX) maxX = x; if (y > maxY) maxY = y;
-          hit++;
-        }
-      }
-    }
-  }
-  if (!hit) return null;
-  // Slightly pad the bbox so the model has seam room to blend.
-  const pad = Math.round(Math.max(w, h) * 0.04);
-  return {
-    x: Math.max(0, minX - pad),
-    y: Math.max(0, minY - pad),
-    w: Math.min(w - 1, maxX + pad) - Math.max(0, minX - pad) + 1,
-    h: Math.min(h - 1, maxY + pad) - Math.max(0, minY - pad) + 1,
-    hitCount: hit,
-  };
-}
+// (legacy regionBBox by color tolerance removed — replaced by the exact
+// id-canvas regionBBox defined earlier.)
 
 // Build a highly suggestive overlay (the ref image) already composited into the
 // painted bbox on top of the base, PLUS a mask that marks ONLY the seam region
 // (a band around the ref's footprint) as editable. The model's job becomes:
 // "blend the seam — do NOT relocate the object". Returns {baseBlob, maskBlob}.
+// `region` is the region object {id, name, color, ...}; `refImg` is its source image.
 async function buildPastedBaseAndSeamMask(region, refImg) {
   const refBlob = await imgSrcToBlob(refImg.src);
   const refBmp = await createImageBitmap(refBlob);
 
-  const bbox = regionBBox(region);
-  if (!bbox) throw new Error('region ' + region + ' 沒有畫筆觸 (bbox empty)');
+  const bbox = regionBBox(region.id);
+  if (!bbox) throw new Error('region "' + region.name + '" 沒有畫筆觸 (bbox empty)');
 
   // Fit refImg into the bbox preserving aspect ratio (contain).
   const sScale = Math.min(bbox.w / refBmp.width, bbox.h / refBmp.height);
@@ -647,7 +696,7 @@ async function buildPastedBaseAndSeamMask(region, refImg) {
   const maskBlob = await canvasToBlob(seamC);
 
   refBmp.close?.();
-  console.log(`[buildPastedBaseAndSeamMask] region=${region} bbox=`, bbox,
+  console.log(`[buildPastedBaseAndSeamMask] region=${region.name}(id=${region.id}) bbox=`, bbox,
     'ref drawn at', drawX | 0, drawY | 0, drawW | 0, 'x', drawH | 0,
     'seam band=' + band);
   return { baseBlob, maskBlob, bbox, pasteRect: { x: drawX, y: drawY, w: drawW, h: drawH } };
@@ -664,26 +713,6 @@ els.bagInput.addEventListener('change', e => {
   });
 });
 
-els.appleInput.addEventListener('change', e => {
-  const file = e.target.files[0];
-  if (!file) return;
-  loadImageToElement(file, img => {
-    state.appleImg = img;
-    renderPreview(els.applePreview, img);
-    updateButtons();
-  });
-});
-
-els.bearInput.addEventListener('change', e => {
-  const file = e.target.files[0];
-  if (!file) return;
-  loadImageToElement(file, img => {
-    state.bearImg = img;
-    renderPreview(els.bearPreview, img);
-    updateButtons();
-  });
-});
-
 function setupCanvases(img) {
   const maxDim = 900;
   let w = img.width, h = img.height;
@@ -692,14 +721,22 @@ function setupCanvases(img) {
     w = Math.round(w * scale);
     h = Math.round(h * scale);
   }
-  els.mainCanvas.width = els.maskCanvas.width = w;
-  els.mainCanvas.height = els.maskCanvas.height = h;
-  state.mainCtx = els.mainCanvas.getContext('2d');
-  state.maskCtx = els.maskCanvas.getContext('2d');
+  els.mainCanvas.width = w;
+  els.mainCanvas.height = h;
+  els.maskCanvas.width = w;
+  els.maskCanvas.height = h;
+  els.regionIdCanvas.width = w;
+  els.regionIdCanvas.height = h;
   state.mainCanvas = els.mainCanvas;
   state.maskCanvas = els.maskCanvas;
+  state.regionIdCanvas = els.regionIdCanvas;
+  state.mainCtx = els.mainCanvas.getContext('2d');
+  state.maskCtx = els.maskCanvas.getContext('2d');
+  state.regionIdCtx = els.regionIdCanvas.getContext('2d');
+  state.regionIdCtx.imageSmoothingEnabled = false; // keep id pixels crisp
   state.mainCtx.drawImage(img, 0, 0, w, h);
   state.maskCtx.clearRect(0, 0, w, h);
+  state.regionIdCtx.clearRect(0, 0, w, h);
   // Init history
   state.history = [];
   state.historyIndex = -1;
@@ -709,53 +746,202 @@ function setupCanvases(img) {
 }
 
 function resetStateForNewBag() {
-  state.region = 'a';
-  state.phase = 0;
-  state.versions = { apple: [], bear: [] };
-  state.appleResultUrl = null;
-  state.bearResultUrl = null;
-  // UI reset
-  els.btnA.classList.add('active-a');
-  els.btnA.classList.remove('active-b', 'active-erase');
-  els.btnB.classList.remove('active-a', 'active-b', 'active-erase');
-  els.btnB.disabled = true;
-  els.btnErase.classList.remove('active-a', 'active-b', 'active-erase');
-  els.btnErase.classList.add('active-erase');
-  els.appleInput.disabled = false;
-  els.bearInput.disabled = true;
-  els.generateAppleBtn.classList.remove('hidden');
-  els.generateBearBtn.classList.add('hidden');
+  state.regions = [];
+  state.nextRegionId = 1;
+  state.activeRegionId = null;
+  state.paintMode = 'paint';
+  state.activeColorRgb = null;
+  state.finalResultUrl = null;
+  // Reset Eraser toggle UI
+  state.paintMode = 'paint';
+  els.eraseState.textContent = 'OFF';
+  els.eraseBtn.classList.remove('primary');
+  // Add one region to start with
+  addRegion();
+  // Download hidden until a generate succeeds
   els.downloadBtn.classList.add('hidden');
-  els.appleVersions.innerHTML = '';
-  els.bearVersions.innerHTML = '';
+  els.generateAllBtn.classList.remove('hidden');
   els.resultPreview.classList.add('empty');
-  els.resultPreview.innerHTML = 'Waiting for Bear step…';
-  els.applePreview.classList.add('empty');
-  els.applePreview.innerHTML = 'No apple';
-  els.bearPreview.classList.add('empty');
-  els.bearPreview.innerHTML = 'No bear';
-  setStatus('Ready — upload bag, paint region A, upload apple', 'info');
+  els.resultPreview.innerHTML = 'Waiting for Generate All…';
+  setStatus('Ready — paint regions, upload a source for each, then Generate All', 'info');
 }
 
-function renderPreview(container, img) {
-  container.classList.remove('empty');
-  container.innerHTML = '';
-  const im = document.createElement('img');
-  im.src = img.src;
-  container.appendChild(im);
+// ========== REGION MANAGER ==========
+// Assign a unique display color per region id via golden-angle hue stepping.
+function regionColorForId(id) {
+  const hue = (id * 67) % 360;
+  const color = `hsl(${hue}, 78%, 60%)`;
+  // Convert to numeric RGB so the overlay / id-canvas writes are exact.
+  const c = hslToRgb(hue, 0.78, 0.60);
+  return { color, colorRgb: { r: c[0], g: c[1], b: c[2] } };
+}
+function hslToRgb(h, s, l) {
+  h /= 360;
+  let r, g, b;
+  if (s === 0) { r = g = b = l; }
+  else {
+    const hue2rgb = (p, q, t) => {
+      if (t < 0) t += 1; if (t > 1) t -= 1;
+      if (t < 1/6) return p + (q - p) * 6 * t;
+      if (t < 1/2) return q;
+      if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+      return p;
+    };
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    r = hue2rgb(p, q, h + 1/3);
+    g = hue2rgb(p, q, h);
+    b = hue2rgb(p, q, h - 1/3);
+  }
+  return [Math.round(r*255), Math.round(g*255), Math.round(b*255)];
 }
 
-// ========== REGION TOGGLE ==========
-[els.btnA, els.btnB, els.btnErase].forEach(btn => {
-  btn.addEventListener('click', () => {
-    if (btn.disabled) return;
-    [els.btnA, els.btnB, els.btnErase].forEach(b => b.classList.remove('active-a', 'active-b', 'active-erase'));
-    state.region = btn.dataset.region;
-    if (state.region === 'a') btn.classList.add('active-a');
-    else if (state.region === 'b') btn.classList.add('active-b');
-    else btn.classList.add('active-erase');
+function addRegion() {
+  const id = state.nextRegionId++;
+  const { color, colorRgb } = regionColorForId(id);
+  const r = {
+    id, name: `Region ${state.regions.length + 1}`,
+    color, colorRgb, sourceImg: null, pasteRect: null, versions: [],
+  };
+  state.regions.push(r);
+  setActiveRegion(id);
+  renderRegionManager();
+  updateButtons();
+}
+
+function deleteRegion(id) {
+  state.regions = state.regions.filter(r => r.id !== id);
+  if (state.activeRegionId === id) {
+    state.activeRegionId = state.regions[0] ? state.regions[0].id : null;
+    state.activeColorRgb = state.regions[0] ? state.regions[0].colorRgb : null;
+    state.paintMode = state.regions[0] ? 'paint' : 'erase';
+  }
+  eraseRegionPixels(id);
+  regenerateDisplayOverlay();
+  pushHistory();
+  renderRegionManager();
+  updateButtons();
+}
+
+// Clear pixels of a specific id off the hidden id-canvas.
+function eraseRegionPixels(id) {
+  if (!state.regionIdCtx) return;
+  const w = state.regionIdCanvas.width, h = state.regionIdCanvas.height;
+  const src = state.regionIdCtx.getImageData(0, 0, w, h);
+  for (let i = 0; i < src.data.length; i += 4) {
+    if (src.data[i] === id) src.data[i + 3] = 0; // make transparent
+  }
+  state.regionIdCtx.putImageData(src, 0, 0);
+}
+
+function setActiveRegion(id) {
+  const r = state.regions.find(x => x.id === id);
+  if (!r) return;
+  state.activeRegionId = id;
+  state.activeColorRgb = r.colorRgb;
+  state.paintMode = 'paint';
+  els.eraseState.textContent = 'OFF';
+  els.eraseBtn.classList.remove('primary');
+  renderRegionManager();
+}
+
+function setEraseMode() {
+  state.paintMode = state.paintMode === 'erase' ? 'paint' : 'erase';
+  if (state.paintMode === 'erase') {
+    state.activeColorRgb = null;
+    els.eraseState.textContent = 'ON';
+    els.eraseBtn.classList.add('primary');
+  } else {
+    // restore color of the active region if any
+    const r = state.regions.find(x => x.id === state.activeRegionId);
+    state.activeColorRgb = r ? r.colorRgb : null;
+    els.eraseState.textContent = 'OFF';
+    els.eraseBtn.classList.remove('primary');
+  }
+  renderRegionManager();
+}
+
+// Render the list of region chips. Each chip: swatch, editable name, source
+// file input + thumbnail, delete button, and a status dot reflecting
+// (painted? has source?). Clicking a chip (not its inputs) sets it active.
+function renderRegionManager() {
+  const list = els.regionList;
+  list.innerHTML = '';
+  const painted = paintedRegionIds();
+  state.regions.forEach(r => {
+    const row = document.createElement('div');
+    row.className = 'region-row' + (r.id === state.activeRegionId && state.paintMode === 'paint' ? ' active' : '');
+    row.dataset.id = r.id;
+
+    const swatch = document.createElement('span');
+    swatch.className = 'swatch';
+    swatch.style.background = r.color;
+
+    const name = document.createElement('input');
+    name.className = 'region-name';
+    name.value = r.name;
+    name.spellcheck = false;
+    name.addEventListener('change', () => {
+      r.name = name.value.trim() || r.name;
+      updateButtons();
+    });
+    // prevent row-click (active toggle) when editing the name
+    name.addEventListener('click', e => e.stopPropagation());
+
+    const del = document.createElement('button');
+    del.className = 'region-del';
+    del.textContent = '×';
+    del.title = 'Delete region';
+    del.addEventListener('click', e => { e.stopPropagation(); deleteRegion(r.id); });
+
+    const srcRow = document.createElement('div');
+    srcRow.className = 'src-row';
+
+    const srcBtn = document.createElement('label');
+    srcBtn.className = 'src-btn';
+    const srcInput = document.createElement('input');
+    srcInput.type = 'file';
+    srcInput.accept = 'image/*';
+    srcInput.addEventListener('change', ev => {
+      const file = ev.target.files[0];
+      if (!file) return;
+      loadImageToElement(file, img => {
+        r.sourceImg = img;
+        renderRegionManager();
+        updateButtons();
+      });
+    });
+    srcBtn.appendChild(srcInput);
+    srcBtn.appendChild(document.createTextNode(r.sourceImg ? 'Change src' : 'Upload src'));
+
+    const thumb = document.createElement('img');
+    thumb.className = 'src-thumb' + (r.sourceImg ? ' has' : '');
+    if (r.sourceImg) thumb.src = r.sourceImg.src;
+    thumb.title = 'source image';
+    thumb.addEventListener('click', e => { e.stopPropagation(); if (r.sourceImg) { window.open(r.sourceImg.src, '_blank'); } });
+
+    const dot = document.createElement('span');
+    dot.className = 'status-dot';
+    const isPainted = painted.has(r.id);
+    if (isPainted && r.sourceImg) dot.classList.add('green');
+    else if (isPainted) dot.classList.add('yellow');
+
+    srcRow.appendChild(srcBtn);
+    srcRow.appendChild(thumb);
+    srcRow.appendChild(dot);
+
+    row.appendChild(swatch);
+    row.appendChild(name);
+    row.appendChild(del);
+    row.appendChild(srcRow);
+
+    row.addEventListener('click', () => setActiveRegion(r.id));
+    list.appendChild(row);
   });
-});
+}
+
+els.addRegionBtn.addEventListener('click', addRegion);
+els.eraseBtn.addEventListener('click', setEraseMode);
 
 // ========== BRUSH SIZE ==========
 els.brushSize.addEventListener('input', e => {
@@ -775,44 +961,80 @@ function getCanvasPos(e) {
 }
 
 function drawStroke(x, y) {
+  const erase = state.paintMode === 'erase' || state.activeColorRgb == null;
+  const color = erase ? null : state.activeColorRgb;
+  const id = erase ? null : state.activeRegionId;
+
+  // --- visible color overlay ---
   state.maskCtx.lineCap = 'round';
   state.maskCtx.lineJoin = 'round';
   state.maskCtx.lineWidth = state.brushSize;
-
-  if (state.region === 'erase') {
+  if (erase) {
     state.maskCtx.globalCompositeOperation = 'destination-out';
     state.maskCtx.strokeStyle = 'rgba(0,0,0,1)';
   } else {
     state.maskCtx.globalCompositeOperation = 'source-over';
-    // Fully opaque region color so the mask-conversion can match it reliably.
-    state.maskCtx.strokeStyle = state.region === 'a'
-      ? 'rgb(239,68,68)'
-      : 'rgb(59,130,246)';
+    state.maskCtx.strokeStyle = `rgb(${color.r},${color.g},${color.b})`;
   }
-
   state.maskCtx.beginPath();
   state.maskCtx.moveTo(state.lastX, state.lastY);
   state.maskCtx.lineTo(x, y);
   state.maskCtx.stroke();
+
+  // --- hidden ground-truth id-canvas (id in RED channel) ---
+  state.regionIdCtx.lineCap = 'round';
+  state.regionIdCtx.lineJoin = 'round';
+  state.regionIdCtx.lineWidth = state.brushSize;
+  if (erase) {
+    state.regionIdCtx.globalCompositeOperation = 'destination-out';
+    state.regionIdCtx.strokeStyle = 'rgba(0,0,0,1)';
+  } else {
+    state.regionIdCtx.globalCompositeOperation = 'source-over';
+    state.regionIdCtx.strokeStyle = `rgb(${id},0,0)`;
+  }
+  state.regionIdCtx.beginPath();
+  state.regionIdCtx.moveTo(state.lastX, state.lastY);
+  state.regionIdCtx.lineTo(x, y);
+  state.regionIdCtx.stroke();
 }
 
 function drawDot(x, y) {
+  const erase = state.paintMode === 'erase' || state.activeColorRgb == null;
+  const color = erase ? null : state.activeColorRgb;
+  const id = erase ? null : state.activeRegionId;
+
+  // visible overlay
   state.maskCtx.beginPath();
   state.maskCtx.arc(x, y, state.brushSize / 2, 0, Math.PI * 2);
-  if (state.region === 'erase') {
+  if (erase) {
     state.maskCtx.globalCompositeOperation = 'destination-out';
     state.maskCtx.fillStyle = 'rgba(0,0,0,1)';
   } else {
     state.maskCtx.globalCompositeOperation = 'source-over';
-    state.maskCtx.fillStyle = state.region === 'a'
-      ? 'rgb(239,68,68)'
-      : 'rgb(59,130,246)';
+    state.maskCtx.fillStyle = `rgb(${color.r},${color.g},${color.b})`;
   }
   state.maskCtx.fill();
+
+  // id-canvas
+  state.regionIdCtx.beginPath();
+  state.regionIdCtx.arc(x, y, state.brushSize / 2, 0, Math.PI * 2);
+  if (erase) {
+    state.regionIdCtx.globalCompositeOperation = 'destination-out';
+    state.regionIdCtx.fillStyle = 'rgba(0,0,0,1)';
+  } else {
+    state.regionIdCtx.globalCompositeOperation = 'source-over';
+    state.regionIdCtx.fillStyle = `rgb(${id},0,0)`;
+  }
+  state.regionIdCtx.fill();
 }
 
 els.mainCanvas.addEventListener('mousedown', e => {
   if (!state.bagImg) return;
+  // Don't draw if there's no active region and we're not erasing
+  if (state.paintMode !== 'erase' && state.activeRegionId == null) {
+    setStatus('Add or select a region first (or toggle Eraser)', 'error');
+    return;
+  }
   state.isDrawing = true;
   const pos = getCanvasPos(e);
   state.lastX = pos.x;
@@ -832,6 +1054,7 @@ function endDrawing() {
   if (state.isDrawing) {
     state.isDrawing = false;
     pushHistory();
+    renderRegionManager(); // refresh status dots (painted set changed)
     updateButtons();
   }
 }
@@ -863,52 +1086,37 @@ els.undoBtn.addEventListener('click', undo);
 els.redoBtn.addEventListener('click', redo);
 els.clearBtn.addEventListener('click', () => {
   if (!state.bagImg) return;
+  // Clear paint on both canvases; keep the regions (chips + sources).
+  state.regionIdCtx.clearRect(0, 0, state.regionIdCanvas.width, state.regionIdCanvas.height);
   state.maskCtx.clearRect(0, 0, state.maskCanvas.width, state.maskCanvas.height);
   pushHistory();
+  renderRegionManager();
   updateButtons();
 });
 
-// ========== MASK CONVERSION ==========
-// OpenAI /v1/images/edits mask convention:
-//   - opaque (alpha=255) = keep unchanged
-//   - transparent (alpha=0) = editable, model fills it
-// We only want the CURRENT region (a or b) to be editable; everything else
-// (including the other region's paint) must stay opaque.
-function createEditMask(region) {
-  const w = state.maskCanvas.width, h = state.maskCanvas.height;
-  const mask = document.createElement('canvas');
-  mask.width = w; mask.height = h;
-  const ctx = mask.getContext('2d');
-  // Start fully opaque white (non-editable)
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, w, h);
-
-  // Target color for the requested region
-  const targetR = region === 'a' ? 239 : 59;
-  const targetG = region === 'a' ? 68 : 130;
-  const targetB = region === 'a' ? 68 : 246;
-  const TOL = 60; // color tolerance
-
-  // Punch holes ONLY where user painted THIS region's color
-  const srcData = state.maskCtx.getImageData(0, 0, w, h);
-  const dstData = ctx.getImageData(0, 0, w, h);
-  let punched = 0;
-  for (let i = 0; i < srcData.data.length; i += 4) {
-    const a = srcData.data[i + 3];
-    if (a > 20) {
-      const r = srcData.data[i], g = srcData.data[i+1], b = srcData.data[i+2];
-      const dr = Math.abs(r - targetR), dg = Math.abs(g - targetG), db = Math.abs(b - targetB);
-      if (dr < TOL && dg < TOL && db < TOL) {
-        dstData.data[i + 3] = 0; // transparent = editable
-        dstData.data[i] = 0; dstData.data[i+1] = 0; dstData.data[i+2] = 0;
-        punched++;
-      }
-    }
+// ===== canGenerate =====
+// Returns { ok, skipped:[names], order:[regionObjs], capWarn }.
+// A painted region missing a source image is skipped (not blocking). The order
+// is the list of regions that will actually be composited, capped at
+// state.maxRegions.
+function canGenerate() {
+  if (!state.bagImg) return { ok:false, skipped:[], order:[] };
+  const painted = state.regions.filter(r => regionHasPaint(r.id));
+  if (!painted.length) return { ok:false, skipped:[], order:[] };
+  const skipped = painted.filter(r => !r.sourceImg).map(r => r.name);
+  let order = painted.filter(r => r.sourceImg);
+  let capWarn = false;
+  if (order.length > state.maxRegions) {
+    capWarn = true;
+    order = order.slice(0, state.maxRegions);
   }
-  ctx.putImageData(dstData, 0, 0);
-  console.log(`[createEditMask] region=${region}, editable pixels=${punched}`);
-  return mask;
+  return { ok: order.length > 0, skipped, order, capWarn };
 }
+
+// ========== MASK CONVERSION ==========
+// (createEditMask removed — dead code under the Option-B paste-then-blend flow.
+// The seam mask built inside buildPastedBaseAndSeamMask is what's sent to the
+// API; nothing here scanned the color overlay anymore.)
 
 function canvasToBlob(canvas, type = 'image/png') {
   return new Promise(resolve => canvas.toBlob(resolve, type));
@@ -923,31 +1131,10 @@ function blobToDataUrl(blob) {
   });
 }
 
-// ========== VERSION MANAGEMENT ==========
-function addVersion(step, dataUrl) {
-  const arr = state.versions[step];
-  arr.unshift(dataUrl);
-  if (arr.length > state.maxVersions) arr.pop();
-  renderVersions(step);
-}
-
-function renderVersions(step) {
-  const container = step === 'apple' ? els.appleVersions : els.bearVersions;
-  const arr = state.versions[step];
-  container.innerHTML = '';
-  arr.forEach((url, idx) => {
-    const wrap = document.createElement('div');
-    wrap.className = 'version-thumb' + (idx > 0 ? ' old' : '');
-    wrap.title = `Version ${idx + 1} (${step})`;
-    const im = document.createElement('img');
-    im.src = url;
-    const badge = document.createElement('span');
-    badge.className = 'version-badge';
-    badge.textContent = `v${idx + 1}`;
-    wrap.appendChild(im);
-    wrap.appendChild(badge);
-    container.appendChild(wrap);
-  });
+// Retain a small per-region version history (max 3 each) for debugging.
+function addVersion(region, dataUrl) {
+  region.versions.unshift(dataUrl);
+  if (region.versions.length > state.maxVersions) region.versions.pop();
 }
 
 // ========== PROXY CONFIG ==========
@@ -1281,131 +1468,99 @@ function extractImageUrl(obj) {
   return null;
 }
 
-// ========== GENERATE APPLE ==========
-// Option B flow: we no longer ask the model to place the apple in region A
-// (gpt-image-2's mask is prompt-based guidance, NOT precise placement — it
-// would drop the apple anywhere). Instead:
-//   1. Compute the bbox of the red strokes (region A).
-//   2. Paste the apple INTO that bbox on top of the current bag canvas → BASE.
-//   3. Build a SEAM mask: only an annulus around the pasted apple is editable;
-//      the apple interior + everything else stays opaque.
-//   4. Send base (with apple already on it) as the image AND as the "ref",
-//      seam mask, and a prompt that says "blend the seam, do not relocate".
-// The model feathers the seam so the apple looks printed on the bag, sitting
-// exactly where the user painted.
-els.generateAppleBtn.addEventListener('click', async () => {
+// ========== GENERATE ALL ==========
+// One /v1/images/edits call PER region, in region-list order. For each region:
+//   1. Compute the bbox of that region's strokes (from the hidden id-canvas).
+//   2. Paste its source image INTO that bbox on the running composite → BASE.
+//   3. Build a SEAM mask: only an annulus around the pasted source is editable.
+//   4. Send base (object already composited) as both image and ref, seam mask,
+//      and the prompt that says "blend the seam, do not relocate".
+// Regions painted but without a source image are SKIPPED (with a warning).
+// Composite order = region-list order; later regions blend atop earlier results.
+// Classify error variants once (shared by the per-region catch).
+function mapErr(err) {
+  return !err || !err.message ? '未知錯誤（請看 console）'
+    : err.message === 'NO_API_KEY' ? '請先貼上 OpenAI API Key'
+    : err.message.startsWith('HTTP') ? `API 錯誤：${err.message}`
+    : `連線錯誤：${err.message}`;
+}
+
+els.generateAllBtn.addEventListener('click', async () => {
   const key = els.apiKey.value.trim();
   if (!key) { setStatus('請先貼上 OpenAI API Key', 'error'); showToast('請先貼上 OpenAI API Key', 'error'); return; }
-  if (!state.bagImg || !state.appleImg) { setStatus('缺少 Bag 或 Apple 圖片', 'error'); showToast('缺少 Bag 或 Apple 圖片', 'error'); return; }
-  if (!maskHasRegion('a')) { setStatus('請先在 A 區畫出至少一個筆觸', 'error'); showToast('請先在 A 區畫出至少一個筆觸', 'error'); return; }
 
-  setStatus('Pasting apple into region A and blending seam…', 'info');
-  showToast('Generating Apple…', 'info');
-  els.generateAppleBtn.disabled = true;
-
-  try {
-    const { baseBlob, maskBlob, pasteRect } = await buildPastedBaseAndSeamMask('a', state.appleImg);
-    // Use the SAME base (bag+apple) as both image and ref: the model has the
-    // apple right there in context and only needs to blend the seam.
-    const resultUrl = await callEditsApi(
-      baseBlob,
-      baseBlob, // ref = base (apple already composited, so nothing to relocate)
-      maskBlob,
-      els.promptApple.value,
-      { size: null }
-    );
-
-    state.appleResultUrl = resultUrl;
-    state.phase = 2; // apple done
-    addVersion('apple', resultUrl);
-
-    // Mirror the blended result back onto the live main canvas so the Bear step
-    // sees the apple already settled on the bag.
-    await paintResultToMainCanvas(resultUrl);
-
-    // Unlock B region
-    els.btnB.disabled = false;
-    els.bearInput.disabled = false;
-    els.generateBearBtn.classList.remove('hidden');
-    // Auto-switch paint mode to B so the user paints blue (not red) for the bear.
-    els.btnB.click();
-
-    setStatus('Apple done — now paint region B (blue), upload bear, then Generate Bear B', 'ok');
-    showToast('Apple step completed', 'success');
-  } catch (err) {
-    console.error('Apple step error:', err);
-    const msg = !err || !err.message ? '未知錯誤（請看 console）'
-      : err.message === 'NO_API_KEY' ? '請先貼上 OpenAI API Key'
-      : err.message.startsWith('HTTP') ? `API 錯誤：${err.message}`
-      : `連線錯誤：${err.message}`;
+  const check = canGenerate();
+  if (!check.ok) {
+    const msg = check.skipped.length
+      ? `All painted regions lack a source image. Skipped: ${check.skipped.join(', ')}`
+      : 'Paint at least one region and upload a source image for it';
     setStatus(msg, 'error');
     showToast(msg, 'error');
-  } finally {
-    els.generateAppleBtn.disabled = false;
-    updateButtons();
+    return;
   }
-});
 
-// ========== GENERATE BEAR ==========
-// Same Option-B flow as Apple, but the base already contains the apple (from
-// step 1), and we paste the bear into the bbox of the blue strokes (region B).
-els.generateBearBtn.addEventListener('click', async () => {
-  const key = els.apiKey.value.trim();
-  if (!key) { setStatus('請先貼上 OpenAI API Key', 'error'); showToast('請先貼上 OpenAI API Key', 'error'); return; }
-  if (!state.appleResultUrl) { setStatus('Apple 步驟尚未完成', 'error'); showToast('Apple 步驟尚未完成', 'error'); return; }
-  if (!state.bearImg) { setStatus('缺少 Bear 圖片', 'error'); showToast('缺少 Bear 圖片', 'error'); return; }
-  if (!maskHasRegion('b')) { setStatus('請先在 B 區畫出至少一個筆觸', 'error'); showToast('請先在 B 區畫出至少一個筆觸', 'error'); return; }
+  const order = check.order;
+  const total = order.length;
+  let preface = check.skipped.length
+    ? `Skipped (no source): ${check.skipped.join(', ')}. `
+    : '';
+  if (check.capWarn) preface += `⚠ Capped at ${state.maxRegions} regions. `;
+  showToast(preface || 'Generating…', 'info');
+  setStatus(`${preface}Generating 0/${total}…`, 'info');
+  els.generateAllBtn.disabled = true;
 
-  setStatus('Pasting bear into region B and blending seam…', 'info');
-  showToast('Generating Bear…', 'info');
-  els.generateBearBtn.disabled = true;
+  let lastUrl = null;
+  let failures = 0;
 
-  try {
-    const { baseBlob, maskBlob } = await buildPastedBaseAndSeamMask('b', state.bearImg);
-    const resultUrl = await callEditsApi(
-      baseBlob,
-      baseBlob, // ref = base (bear already composited)
-      maskBlob,
-      els.promptBear.value,
-      { size: null }
-    );
+  for (let i = 0; i < order.length; i++) {
+    const r = order[i];
+    setStatus(`Pasting "${r.name}" into its region and blending seam (${i+1}/${total})…`, 'info');
+    try {
+      const { baseBlob, maskBlob, pasteRect } = await buildPastedBaseAndSeamMask(r, r.sourceImg);
+      r.pasteRect = pasteRect;
+      // ref = base (source already composited, so the model only blends the seam)
+      const url = await callEditsApi(baseBlob, baseBlob, maskBlob, els.promptAll.value, { size: null });
+      lastUrl = url;
+      addVersion(r, url);
+      // Paint this region's blended result back onto the working composite so
+      // the NEXT region blends on top of an up-to-date canvas.
+      await paintResultToMainCanvas(url);
+    } catch (err) {
+      failures++;
+      const msg = mapErr(err);
+      console.error(`Region "${r.name}" failed:`, err);
+      setStatus(`Region "${r.name}" failed: ${msg} — continuing to next region`, 'error');
+      showToast(`Region "${r.name}" failed`, 'error');
+      // do NOT break — keep going so one failure doesn't kill the rest
+    }
+  }
 
-    state.bearResultUrl = resultUrl;
-    state.phase = 4; // done
-    addVersion('bear', resultUrl);
-
-    // Mirror the final blended result back onto the live main canvas.
-    await paintResultToMainCanvas(resultUrl);
-
-    // Show final result
+  if (lastUrl) {
+    state.finalResultUrl = lastUrl;
     els.resultPreview.classList.remove('empty');
     els.resultPreview.innerHTML = '';
     const im = document.createElement('img');
-    im.src = resultUrl;
+    im.src = lastUrl;
     im.className = 'result-img';
     els.resultPreview.appendChild(im);
-
     els.downloadBtn.classList.remove('hidden');
 
-    setStatus('Done — final result ready', 'ok');
-    showToast('Bear step completed', 'success');
-  } catch (err) {
-    console.error('Bear step error:', err);
-    const msg = !err || !err.message ? '未知錯誤（請看 console）'
-      : err.message === 'NO_API_KEY' ? '請先貼上 OpenAI API Key'
-      : err.message.startsWith('HTTP') ? `API 錯誤：${err.message}`
-      : `連線錯誤：${err.message}`;
-    setStatus(msg, 'error');
-    showToast(msg, 'error');
-  } finally {
-    els.generateBearBtn.disabled = false;
-    updateButtons();
+    const doneMsg = failures
+      ? `Done — ${total - failures}/${total} region(s) composited (${failures} failed)`
+      : `Done — ${total} region(s) composited`;
+    setStatus(doneMsg, failures ? 'error' : 'ok');
+    showToast('Composite complete', failures ? 'error' : 'success');
+  } else {
+    setStatus(`All ${total} region(s) failed — check console / proxy`, 'error');
+    showToast('Generate All failed', 'error');
   }
+  els.generateAllBtn.disabled = false;
+  updateButtons();
 });
 
 // Paint a result (data URL) back onto the live main canvas at full canvas
-// dimensions, so the next step sees the composite on-bag. Keeps the mask
-// canvas untouched (the brush strokes remain for reference / re-run).
+// dimensions, so the next region sees the composite on-bag. Keeps the mask
+// canvases untouched (brush strokes remain for reference / re-run).
 async function paintResultToMainCanvas(dataUrl) {
   const img = new Image();
   img.src = dataUrl;
@@ -1417,9 +1572,9 @@ async function paintResultToMainCanvas(dataUrl) {
 
 // ========== DOWNLOAD ==========
 els.downloadBtn.addEventListener('click', () => {
-  if (!state.bearResultUrl) return;
+  if (!state.finalResultUrl) return;
   const a = document.createElement('a');
-  a.href = state.bearResultUrl;
+  a.href = state.finalResultUrl;
   a.download = 'bag-composite.png';
   a.click();
   showToast('Downloaded bag-composite.png', 'success');
